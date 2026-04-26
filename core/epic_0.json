@@ -1,0 +1,34 @@
+{
+    "epic_id": "EPIC_0",
+    "description": "Inicjalizacja jądra systemu LangGraph i zarządzania stanem",
+    "tasks": [
+        {
+            "task_id": "TASK_0_1",
+            "description": "Implementacja modeli Pydantic dla FileMetadata, ExecutionLog, AtomicTask i Epic.",
+            "target_files": [
+                "core/models.py"
+            ]
+        },
+        {
+            "task_id": "TASK_0_2",
+            "description": "Implementacja funkcji redukujących (reducers) dla stanu LangGraph (merge_file_system_state, update_wbs).",
+            "target_files": [
+                "core/reducers.py"
+            ]
+        },
+        {
+            "task_id": "TASK_0_3",
+            "description": "Definicja głównej klasy AgentState (TypedDict) integrującej modele i reducery.",
+            "target_files": [
+                "core/state.py"
+            ]
+        },
+        {
+            "task_id": "TASK_0_4",
+            "description": "Napisanie testów jednostkowych weryfikujących poprawne działanie reducerów (szczególnie łączenie stanu plików i logów).",
+            "target_files": [
+                "tests/test_state.py"
+            ]
+        }
+    ]
+}

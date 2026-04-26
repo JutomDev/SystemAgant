@@ -1,0 +1,26 @@
+{
+  "epic_id": "EPIC_2",
+  "description": "Implementacja narzędzi (Tools) dla agentów wykonawczych",
+  "tasks":[
+    {
+      "task_id": "TASK_2_1",
+      "description": "Implementacja narzędzia read_file z obsługą wyjątków I/O.",
+      "target_files": ["core/tools/fs_tools.py"]
+    },
+    {
+      "task_id": "TASK_2_2",
+      "description": "Implementacja narzędzia edit_file opartego na wzorcu SEARCH/REPLACE z walidacją bloków.",
+      "target_files":["core/tools/fs_tools.py"]
+    },
+    {
+      "task_id": "TASK_2_3",
+      "description": "Implementacja narzędzia execute_subprocess z 30-sekundowym timeoutem i mapowaniem wyników na model ExecutionLog.",
+      "target_files": ["core/tools/sys_tools.py"]
+    },
+    {
+      "task_id": "TASK_2_4",
+      "description": "Napisanie testów jednostkowych dla narzędzi, w tym mockowanie systemu plików (pytest-mock) oraz symulacja TimeoutExpired w subprocess.",
+      "target_files": ["tests/test_tools.py"]
+    }
+  ]
+}

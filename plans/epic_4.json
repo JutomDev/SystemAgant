@@ -1,0 +1,31 @@
+{
+  "epic_id": "EPIC_4",
+  "description": "Integracja Wykonawcza, Structured Outputs i stabilizacja stanu",
+  "tasks":[
+    {
+      "task_id": "TASK_4_1",
+      "description": "Definicja modelu ArchitectOutput i refaktoryzacja architect_node do użycia with_structured_output.",
+      "target_files":["core/nodes/architect.py", "core/models.py"]
+    },
+    {
+      "task_id": "TASK_4_2",
+      "description": "Implementacja logiki egzekutora narzędzi w tester_node z mapowaniem wyników na ToolMessage.",
+      "target_files": ["core/nodes/tester.py"]
+    },
+    {
+      "task_id": "TASK_4_3",
+      "description": "Dodanie logiki przechwytywania wyników execute_subprocess i aktualizacji stanu execution_logs in tester_node.",
+      "target_files": ["core/nodes/tester.py"]
+    },
+    {
+      "task_id": "TASK_4_4",
+      "description": "Aktualizacja human_approval_node o czyszczenie execution_logs i reset current_iteration.",
+      "target_files":["core/nodes/human.py"]
+    },
+    {
+      "task_id": "TASK_4_5",
+      "description": "Testy integracyjne weryfikujące poprawność parsowania WBS przez Structured Outputs oraz ciągłość ToolMessages w grafie.",
+      "target_files": ["tests/test_integration_epic4.py"]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+{
+  "epic_id": "EPIC_5",
+  "description": "Inicjalizacja Aplikacji i CLI (Command Line Interface)",
+  "tasks":[
+    {
+      "task_id": "TASK_5_1",
+      "description": "Implementacja głównej pętli CLI w main.py z obsługą standardowego wejścia/wyjścia.",
+      "target_files":["main.py"]
+    },
+    {
+      "task_id": "TASK_5_2",
+      "description": "Integracja MemorySaver i konfiguracji wątków (thread_id) z głównym grafem LangGraph.",
+      "target_files": ["main.py", "core/graph.py"]
+    },
+    {
+      "task_id": "TASK_5_3",
+      "description": "Implementacja logiki HITL: detekcja przerwań (state.next), obsługa komendy ZATWIERDZAM i wznawianie grafu (update_state).",
+      "target_files": ["main.py"]
+    },
+    {
+      "task_id": "TASK_5_4",
+      "description": "Dodanie streamowania zdarzeń (stream_mode='updates') w celu monitorowania postępu węzłów w konsoli.",
+      "target_files": ["main.py"]
+    }
+  ]
+}

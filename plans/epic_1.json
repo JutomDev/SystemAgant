@@ -1,0 +1,26 @@
+{
+  "epic_id": "EPIC_1",
+  "description": "Implementacja przepływu sterowania (Control Flow) w LangGraph",
+  "tasks":[
+    {
+      "task_id": "TASK_1_1",
+      "description": "Utworzenie pliku z definicjami węzłów (stubs) i funkcji warunkowych.",
+      "target_files": ["core/nodes.py", "core/edges.py"]
+    },
+    {
+      "task_id": "TASK_1_2",
+      "description": "Implementacja funkcji create_graph integrującej węzły i krawędzie.",
+      "target_files": ["core/graph.py"]
+    },
+    {
+      "task_id": "TASK_1_3",
+      "description": "Dodanie MemorySaver (checkpointer) do kompilacji grafu w celu obsługi stanu i przerw (interrupt_before).",
+      "target_files": ["core/graph.py"]
+    },
+    {
+      "task_id": "TASK_1_4",
+      "description": "Napisanie testów integracyjnych weryfikujących ścieżki przejść (szczególnie pętlę Koder <-> Tester przy błędach).",
+      "target_files": ["tests/test_graph_routing.py"]
+    }
+  ]
+}

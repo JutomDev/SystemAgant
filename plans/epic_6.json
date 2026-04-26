@@ -1,0 +1,26 @@
+{
+  "epic_id": "EPIC_6",
+  "description": "Audyt Bezpieczeństwa, Stabilizacja i Bugfixing",
+  "tasks":[
+    {
+      "task_id": "TASK_6_1",
+      "description": "Refaktoryzacja tester_condition i coder_node w celu bezpiecznej obsługi typów dict/Pydantic dla execution_logs.",
+      "target_files":["core/edges.py", "core/nodes/coder.py"]
+    },
+    {
+      "task_id": "TASK_6_2",
+      "description": "Wdrożenie mechanizmu syntetycznych logów w tester_node zapobiegającego nieskończonym pętlom przy braku wywołań execute_subprocess.",
+      "target_files": ["core/nodes/tester.py"]
+    },
+    {
+      "task_id": "TASK_6_3",
+      "description": "Implementacja silnika reguł w router_node do dynamicznej aktualizacji current_phase na podstawie stanu WBS.",
+      "target_files":["core/nodes/router.py"]
+    },
+    {
+      "task_id": "TASK_6_4",
+      "description": "Napisanie testów regresyjnych weryfikujących przerwanie pętli Testera oraz poprawne tranzycje faz w Routerze.",
+      "target_files":["tests/test_regression_epic6.py"]
+    }
+  ]
+}

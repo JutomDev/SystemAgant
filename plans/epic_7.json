@@ -1,0 +1,20 @@
+{
+  "epic_id": "EPIC_7",
+  "description": "Optymalizacja Stacku Technologicznego (Aktualizacja modeli Gemini)",
+  "tasks": [
+    {
+      "task_id": "TASK_7_1",
+      "description": "Zaktualizuj nazwę modelu LLM w węźle Architekta na gemini-3.1-pro zachowując temperaturę 0.2 i wszystkie obecne parametry.",
+      "target_files": [
+        "core/nodes/architect.py"
+      ]
+    },
+    {
+      "task_id": "TASK_7_2",
+      "description": "Zaktualizuj nazwę modelu LLM w węźle Kodera na gemini-3.1-flash nie zmieniając konfiguracji parsowania i formatowania wiadomości do loggera.",
+      "target_files": [
+        "core/nodes/coder.py"
+      ]
+    }
+  ]
+}

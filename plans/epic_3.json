@@ -1,0 +1,26 @@
+{
+  "epic_id": "EPIC_3",
+  "description": "Implementacja logiki węzłów i Pamięci Hybrydowej (Message Filtering)",
+  "tasks":[
+    {
+      "task_id": "TASK_3_1",
+      "description": "Implementacja funkcji filter_architect_messages usuwającej ToolCalls i ToolMessages z kontekstu.",
+      "target_files": ["core/memory.py"]
+    },
+    {
+      "task_id": "TASK_3_2",
+      "description": "Implementacja architect_node z integracją ChatVertexAI (gemini-1.5-pro) oraz wstrzykiwaniem stanu WBS jako SystemMessage.",
+      "target_files": ["core/nodes/architect.py"]
+    },
+    {
+      "task_id": "TASK_3_3",
+      "description": "Implementacja coder_node z integracją ChatVertexAI (gemini-1.5-flash), bindowaniem narzędzi fs_tools i wstrzykiwaniem logów stderr.",
+      "target_files": ["core/nodes/coder.py"]
+    },
+    {
+      "task_id": "TASK_3_4",
+      "description": "Napisanie testów jednostkowych weryfikujących izolację pamięci (brak wycieku logów technicznych do kontekstu Architekta).",
+      "target_files": ["tests/test_memory_filters.py"]
+    }
+  ]
+}
