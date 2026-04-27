@@ -10,7 +10,7 @@ from core.edges import router_condition, tester_condition, human_approval_condit
 def architect_condition(state: AgentState):
     # Jeśli jesteśmy w fazie burzy mózgów, wracamy do użytkownika (END), by mógł odpowiedzieć
     if state.get("current_phase", "brainstorming") == "brainstorming":
-        return END
+        return "end"
         
     # Powrót z konsultacji do Kodera
     if state.get("current_phase") == "execution" and state.get("consultation_retries", 0) > 0:

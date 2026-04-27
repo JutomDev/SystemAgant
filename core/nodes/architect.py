@@ -8,42 +8,56 @@ def architect_node(state: AgentState) -> dict:
     """
     Węzeł Architekta wykorzystujący natywne Structured Outputs.
     Gwarantuje deterministyczny format WBS bez potrzeby parsowania Markdown.
+    Używa dwóch osobnych modeli z natywną instrukcją systemową (system_instruction).
     """
-    llm = ChatVertexAI(
-        model_name="gemini-3.1-pro-preview", # POPRAWIONE API ID DLA VERTEX AI
-        temperature=0.2,
-        location="global", # WYMAGANE DLA NOWYCH MODELI PREVIEW
-        project="nifty-saga-493918-c8"
-    )
-    structured_llm = llm.with_structured_output(ArchitectOutput)
-    
     filtered_messages = filter_architect_messages(state.get("messages", []))
     
     consultation_retries = state.get("consultation_retries", 0)
     current_phase = state.get("current_phase", "brainstorming")
     
     principles = state.get("guiding_principles", {"core_constitution": [], "project_directives": []})
-    principles_text = f"ZASADY SYSTEMU: {principles.get('core_constitution')}\nDYREKTYWY PROJEKTU: {principles.get('project_directives')}"
 
     if current_phase == "execution" and consultation_retries < 2:
-        # TRYB KONSULTACJI (DEBUGOWANIA)
-        debug_prompt = SystemMessage(content=f"""Jesteś Principal AI Architectem w trybie interwencji krytycznej.
-Koder utknął. Zawsze przestrzegaj tych zasad: {principles_text}.
-Przeanalizuj historię wiadomości i błędy z testów. Zaproponuj konkretne, innowacyjne obejście problemu. Przekaż Koderowi dokładne instrukcje nowej implementacji.""")
+        # ====== TRYB KONSULTACJI (DEBUGOWANIA) ======
+        consultant_instruct = f"""<role>Jesteś Principal AI Architectem w trybie interwencji krytycznej.</role>
+<core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
+<project_directives>\n{principles.get('project_directives')}\n</project_directives>
+<instructions>Koder utknął. Przeanalizuj historię wiadomości i błędy z testów. Zaproponuj konkretne, innowacyjne obejście problemu. Przekaż Koderowi dokładne instrukcje nowej implementacji.</instructions>"""
+
+        consultant_llm = ChatVertexAI(
+            model_name="gemini-3.1-pro-preview",
+            location="global",
+            project="nifty-saga-493918-c8",
+            temperature=0.7,
+            top_p=0.95,
+            max_output_tokens=2048,
+        )
         
-        # Oczekujemy, że llm to ChatVertexAI zainicjalizowany jako gemini-3.1-pro
-        response = llm.invoke([debug_prompt] + state.get("messages", []))
+        # Instrukcja systemowa jako SystemMessage (gwarantowany kanał)
+        consultant_sys_msg = SystemMessage(content=consultant_instruct)
+        response = consultant_llm.invoke([consultant_sys_msg] + state.get("messages", []))
         
         return {
             "messages": [response],
             "consultation_retries": consultation_retries + 1,
-            "retry_count": 0 # Twardy reset prób dla Kodera
+            "retry_count": 0  # Twardy reset prób dla Kodera
         }
     else:
-        # TRYB PLANOWANIA WBS (Twoja dotychczasowa logika, wzbogacona o zasady)
-        planning_prompt = SystemMessage(content=f"""Jesteś AI Architectem. 
-Twoje zasady: {principles_text}.
-Przeanalizuj wymagania użytkownika i stwórz/zaktualizuj plan WBS.""")
+        # ====== TRYB PLANOWANIA WBS ======
+        planner_instruct = f"""<role>Jesteś AI Architectem odpowiedzialnym za planowanie struktury projektu.</role>
+<core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
+<project_directives>\n{principles.get('project_directives')}\n</project_directives>
+<instructions>Przeanalizuj wymagania użytkownika i stwórz/zaktualizuj plan WBS. Generuj ustrukturyzowany obiekt JSON z polem 'response' (Twoja tekstowa odpowiedź) oraz opcjonalnym polem 'wbs' (lista Epików z zadaniami).</instructions>"""
+        
+        planner_llm = ChatVertexAI(
+            model_name="gemini-3.1-pro-preview",
+            location="global",
+            project="nifty-saga-493918-c8",
+            temperature=0.3,
+            top_p=0.95,
+            max_output_tokens=2048,
+        )
+        structured_planner = planner_llm.with_structured_output(ArchitectOutput)
         
         if current_phase == "brainstorming":
             brainstorm_prompt = SystemMessage(
@@ -59,12 +73,42 @@ Przeanalizuj wymagania użytkownika i stwórz/zaktualizuj plan WBS.""")
         if wbs_context:
             wbs_msg = SystemMessage(content=f"Current WBS Status: {wbs_context}")
             filtered_messages.insert(0, wbs_msg)
-            
-        # ZACHOWAJ SWOJĄ LOGIKĘ: Tutaj użyj structured_llm do wygenerowania WBS
-        response = structured_llm.invoke([planning_prompt] + filtered_messages)
         
-        state_update = {"messages": [AIMessage(content="Zaktualizowałem plan WBS zgodnie z ustaleniami.")]}
-        if response.wbs:
-            state_update["wbs"] = response.wbs
-            
-        return state_update
+        # Instrukcja systemowa jako SystemMessage na początku listy
+        planner_sys_msg = SystemMessage(content=planner_instruct)
+        response = structured_planner.invoke([planner_sys_msg] + filtered_messages)
+        
+        # ODKNEBLOWANIE ARCHITEKTA: Renderowanie obiektu do tekstu
+        raw_wbs = response.wbs if hasattr(response, 'wbs') else response.get("wbs", [])
+        wbs_list = raw_wbs if raw_wbs is not None else []
+        
+        # Pobieramy tekstową odpowiedź architekta
+        main_response = response.response if hasattr(response, 'response') else response.get("response", "")
+        plan_text = f"{main_response}\n"
+
+        if wbs_list:
+            plan_text += "\nOto wygenerowany plan działania (WBS):\n"
+            for i, epic in enumerate(wbs_list):
+                # Obsługa zarówno obiektów Pydantic jak i zwykłych słowników
+                if isinstance(epic, dict):
+                    epic_name = epic.get('description', epic.get('epic_id', f'Epik {i+1}'))
+                    tasks = epic.get('tasks', [])
+                else:
+                    epic_name = getattr(epic, 'description', getattr(epic, 'epic_id', f'Epik {i+1}'))
+                    tasks = getattr(epic, 'tasks', [])
+
+                plan_text += f"\n🔹 **{epic_name}**\n"
+                
+                for task in tasks:
+                    if isinstance(task, dict):
+                        task_desc = task.get('description', 'Zadanie')
+                    else:
+                        task_desc = getattr(task, 'description', 'Zadanie')
+                    plan_text += f"   - {task_desc}\n"
+                    
+            plan_text += "\nJeśli akceptujesz ten plan, wpisz 'ZATWIERDZAM' (lub jeśli graf zapyta o zgodę, potwierdź), albo podaj swoje poprawki."
+
+        return {
+            "wbs": wbs_list,
+            "messages": [AIMessage(content=plan_text)]
+        }

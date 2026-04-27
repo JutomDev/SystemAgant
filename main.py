@@ -2,23 +2,41 @@ import os
 import sys
 import logging
 import logging.config
+import warnings
+from langchain_core._api.deprecation import LangChainDeprecationWarning
+
+# Wyciszenie spamu z ostrzeżeniami LangChain w konsoli
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore", category=LangChainDeprecationWarning)
 from pathlib import Path
 from uuid import uuid4
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_vertexai import ChatVertexAI
 from core.graph import create_graph
 
 # Inicjalizacja modelu PRO dla głębokich podsumowań HITL
-pro_communicator = ChatVertexAI(model_name="gemini-3.1-pro-preview", location="global", project="nifty-saga-493918-c8", temperature=0.2)
+pro_communicator = ChatVertexAI(model_name="gemini-3.1-pro-preview", location="global", project="nifty-saga-493918-c8", temperature=0.1)
 
 def generate_pro_hitl_summary(state_values: dict) -> str:
     # Zbuduj kontekst z WBS, ostatnich logów i fazy
     context = f"Faza: {state_values.get('current_phase')}, WBS: {state_values.get('wbs')}, Consultations: {state_values.get('consultation_retries')}"
-    prompt = SystemMessage(content="Jesteś Architektem Projektu. Podsumuj merytorycznie obecny stan prac, wskaż z czym jest problem (jeśli eskalowano błąd) i jasno określ, jakiej decyzji oczekujesz od użytkownika. Bądź zwięzły, profesjonalny i techniczny.")
     
-    response = pro_communicator.invoke([prompt, HumanMessage(content=context)])
-    return f"\n=== RAPORT ARCHITEKTA ===\n{response.content}\n=========================\n"
+    # Zamiast bezpośrednich obiektów Message, używamy ChatPromptTemplate
+    prompt_template = ChatPromptTemplate.from_messages([
+        ("system", "Jesteś Architektem Projektu. Podsumuj merytorycznie obecny stan prac, wskaż z czym jest problem (jeśli eskalowano błąd) i jasno określ, jakiej decyzji oczekujesz od użytkownika. Bądź zwięzły, profesjonalny i techniczny."),
+        ("human", "{context}")
+    ])
+    
+    # Zbudowanie deklaratywnego łańcucha LCEL (Prompt -> Model -> Parser Stringów)
+    chain = prompt_template | pro_communicator | StrOutputParser()
+    
+    # Wywołanie łańcucha (StrOutputParser automatycznie usuwa 'thought_signature' i wyciąga czysty tekst)
+    clean_output = chain.invoke({"context": context})
+    
+    return f"\n=== RAPORT ARCHITEKTA ===\n{clean_output}\n=========================\n"
 WORKSPACES_DIR = Path("./workspaces")
 
 def setup_logging(log_path: Path):

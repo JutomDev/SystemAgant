@@ -68,8 +68,8 @@ class AgentState(TypedDict):
     workspace_path: str
     
     # 9. Kontrola pętli eskalacji
-    retry_count: Annotated[int, operator.setitem]
-    consultation_retries: Annotated[int, operator.setitem]
+    retry_count: int
+    consultation_retries: int
     
     # 10. Zasady projektowe (Guiding Principles)
-    guiding_principles: Annotated[dict, operator.setitem]
+    guiding_principles: dict
