@@ -2,12 +2,12 @@ from core.state import AgentState
 
 def router_node(state: AgentState) -> dict:
     """
-    Węzeł Routera. Pełni rolę silnika reguł do zarządzania cyklem życia projektu.
+    Router node. Acts as a rule engine for managing the project lifecycle.
     """
     wbs = state.get("wbs", [])
     current_phase = state.get("current_phase", "brainstorming")
     
-    # 1. Skanowanie WBS w poszukiwaniu nieukończonych zadań i wybór aktywnego zadania
+    # 1. Scan WBS for incomplete tasks and select the active task
     pending_tasks = False
     next_task_id = None
     
@@ -25,13 +25,13 @@ def router_node(state: AgentState) -> dict:
         if next_task_id:
             break
 
-    # 2. Logika przejść faz (MODUŁ 3: Milestone-Based HITL)
+    # 2. Phase transition logic (MODULE 3: Milestone-Based HITL)
     if not wbs:
         return {"current_phase": "brainstorming", "current_task_id": None}
         
-    # Sprawdzamy, czy aktualny Epik (pierwszy nieukończony) właśnie się skończył
-    # Logika: Szukamy Epiku, który ma wszystkie zadania 'completed', 
-    # ale system wciąż jest w fazie 'execution'.
+    # Check if the current Epic (first incomplete) just finished
+    # Logic: Look for an Epic with all tasks 'completed',
+    # while the system is still in 'execution' phase.
     all_epics_completed = True
     epic_just_finished = False
     
@@ -42,10 +42,10 @@ def router_node(state: AgentState) -> dict:
         if not epic_done:
             all_epics_completed = False
             break
-        # Jeśli epik jest skończony, ale nie ma jeszcze 'completed' fazy, 
-        # to znaczy, że prawdopodobnie właśnie go skończyliśmy.
+        # If an epic is done but phase hasn't been marked 'completed' yet,
+        # it means we likely just finished it.
     
-    # 3. Zarządzanie fazami
+    # 3. Phase management
     messages = state.get("messages", [])
     if current_phase == "completed" and messages:
         last_msg = messages[-1]
@@ -63,13 +63,13 @@ def router_node(state: AgentState) -> dict:
         if all_epics_completed:
             return {"current_phase": "completed", "current_task_id": None}
         
-        # Jeśli skończyliśmy zadanie i nie ma więcej zadań w TYM Epiku (next_task_id przesunął się do nowego Epiku)
-        # to prosimy o akceptację kamienia milowego.
-        # Wymaga to porównania z poprzednim task_id, ale możemy uprościć:
-        # Jeśli poprzednie zadanie było w innym epiku niż obecne -> HITL.
+        # If a task finished and no more tasks remain in THIS Epic (next_task_id moved to a new Epic)
+        # request milestone approval.
+        # Requires comparing with the previous task_id. Simplified logic:
+        # If previous and current task belong to different Epics -> HITL.
         prev_task_id = state.get("current_task_id")
         if prev_task_id and next_task_id and prev_task_id != next_task_id:
-            # Sprawdzamy czy prev_task_id i next_task_id należą do różnych epików
+            # Check if prev_task_id and next_task_id belong to different Epics
             def get_epic_index(tid):
                 for i, e in enumerate(wbs):
                     ts = e.get("tasks", []) if isinstance(e, dict) else getattr(e, "tasks", [])

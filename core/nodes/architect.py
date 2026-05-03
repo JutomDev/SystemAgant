@@ -7,9 +7,9 @@ from core.memory import filter_architect_messages
 
 def architect_node(state: AgentState) -> dict:
     """
-    Węzeł Architekta wykorzystujący natywne Structured Outputs.
-    Gwarantuje deterministyczny format WBS bez potrzeby parsowania Markdown.
-    Używa dwóch osobnych modeli z natywną instrukcją systemową (system_instruction).
+    Architect node leveraging native Structured Outputs.
+    Guarantees deterministic WBS format without Markdown parsing.
+    Uses two separate models with native system instructions.
     """
     filtered_messages = filter_architect_messages(state.get("messages", []))
     
@@ -18,7 +18,7 @@ def architect_node(state: AgentState) -> dict:
     
     principles = state.get("guiding_principles", {"core_constitution": [], "project_directives": []})
 
-    # 1. Konsultant - do rozwiązywania problemów i iteracji
+    # 1. Consultant — for problem-solving and iteration
     consultant_llm = ChatVertexAI(
         model_name="gemini-3.1-pro-preview", 
         location="global", 
@@ -28,7 +28,7 @@ def architect_node(state: AgentState) -> dict:
         model_kwargs={"thinking_level": "high"}
     )
     
-    # 2. Planista - do tworzenia WBS i fazy Brainstormingu
+    # 2. Planner — for WBS creation and Brainstorming phase
     planner_llm = ChatVertexAI(
         model_name="gemini-3.1-pro-preview", 
         location="global", 
@@ -41,24 +41,24 @@ def architect_node(state: AgentState) -> dict:
     )
 
     if current_phase == "execution" and consultation_retries < 2:
-        # ====== TRYB KONSULTACJI (DEBUGOWANIA) ======
+        # ====== CONSULTATION MODE (DEBUGGING) ======
         consultant_instruct = f"""<role>Jesteś Principal AI Architectem w trybie interwencji krytycznej.</role>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
 <instructions>Koder utknął. Przeanalizuj historię wiadomości i błędy z testów. Zaproponuj konkretne, innowacyjne obejście problemu. Przekaż Koderowi dokładne instrukcje nowej implementacji.
 WAŻNE: NIGDY nie generuj bloków kodu. Nie pisz gotowego kodu. Opisz Koderowi CO ma zmienić i DLACZEGO, ale to ON musi użyć narzędzia edit_file do wprowadzenia zmian. Ty jesteś strategiem, nie programistą.</instructions>"""
 
-        # Instrukcja systemowa jako SystemMessage (gwarantowany kanał)
+        # System instruction as SystemMessage (guaranteed channel)
         consultant_sys_msg = SystemMessage(content=consultant_instruct)
         response = consultant_llm.invoke([consultant_sys_msg] + filtered_messages)
         
         return {
             "messages": [response],
             "consultation_retries": consultation_retries + 1,
-            "retry_count": 0  # Twardy reset prób dla Kodera
+            "retry_count": 0  # Hard reset of retry counter for the Coder
         }
     else:
-        # ====== TRYB PLANOWANIA WBS ======
+        # ====== WBS PLANNING MODE ======
         workspace_path = state.get("workspace_path", "")
         file_list = []
         if workspace_path and os.path.exists(workspace_path):
@@ -96,22 +96,22 @@ NIGDY nie proś użytkownika o wklejanie kodu, który już jest na dysku. Zamias
             wbs_msg = SystemMessage(content=f"Current WBS Status: {wbs_context}")
             filtered_messages.insert(0, wbs_msg)
         
-        # Instrukcja systemowa jako SystemMessage na początku listy
+        # System instruction as SystemMessage at the beginning of the list
         planner_sys_msg = SystemMessage(content=planner_instruct)
         response = structured_planner.invoke([planner_sys_msg] + filtered_messages)
         
-        # ODKNEBLOWANIE ARCHITEKTA: Renderowanie obiektu do tekstu
+        # UNBLOCK ARCHITECT: Render structured object to text
         raw_wbs = response.wbs if hasattr(response, 'wbs') else response.get("wbs", [])
         wbs_list = raw_wbs if raw_wbs is not None else []
         
-        # Pobieramy tekstową odpowiedź architekta
+        # Extract the Architect's text response
         main_response = response.response if hasattr(response, 'response') else response.get("response", "")
         plan_text = f"{main_response}\n"
 
         if wbs_list:
             plan_text += "\nOto wygenerowany plan działania (WBS):\n"
             for i, epic in enumerate(wbs_list):
-                # Obsługa zarówno obiektów Pydantic jak i zwykłych słowników
+                # Handle both Pydantic objects and plain dictionaries
                 if isinstance(epic, dict):
                     epic_name = epic.get('description', epic.get('epic_id', f'Epik {i+1}'))
                     tasks = epic.get('tasks', [])
@@ -130,8 +130,8 @@ NIGDY nie proś użytkownika o wklejanie kodu, który już jest na dysku. Zamias
                     
             plan_text += "\nJeśli akceptujesz ten plan, wpisz 'ZATWIERDZAM' (lub jeśli graf zapyta o zgodę, potwierdź), albo podaj swoje poprawki."
 
-        # Konwersja obiektów Pydantic na słowniki przed zapisem do stanu
-        # Zapobiega to błędom serializacji w SqliteSaver
+        # Convert Pydantic objects to dicts before saving to state
+        # Prevents serialization errors in SqliteSaver
         wbs_dicts = []
         for epic in wbs_list:
             if hasattr(epic, "dict"):

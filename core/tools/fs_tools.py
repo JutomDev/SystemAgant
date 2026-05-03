@@ -3,7 +3,7 @@ import ast
 from langchain_core.tools import tool
 
 def _secure_path(workspace_path: str, user_path: str) -> str:
-    """Waliduje ścieżkę. Pozwala na względne ścieżki wpisywane przez agenta."""
+    """Validates the path. Allows relative paths typed by the agent."""
     base_path = os.path.abspath(workspace_path)
     clean_user_path = user_path.lstrip('/').lstrip('\\')
     requested_path = os.path.abspath(os.path.join(base_path, clean_user_path))
@@ -14,9 +14,9 @@ def _secure_path(workspace_path: str, user_path: str) -> str:
 
 @tool
 def read_file(path: str, workspace_path: str = "") -> str:
-    """Odczytuje zawartość pliku z izolowanego folderu projektu."""
+    """Reads the contents of a file from the isolated project directory."""
     try:
-        if not workspace_path: raise ValueError("Brak workspace_path")
+        if not workspace_path: raise ValueError("Missing workspace_path")
         safe_path = _secure_path(workspace_path, path)
         with open(safe_path, 'r', encoding='utf-8') as f:
             return f.read()
@@ -26,16 +26,16 @@ def read_file(path: str, workspace_path: str = "") -> str:
 @tool
 def edit_file(path: str, diff_instructions: str, workspace_path: str = "") -> str:
     """
-    Edytuje plik używając bloków SEARCH/REPLACE. Nie nadpisuje całego pliku.
-    Wymagany format diff_instructions:
+    Edits a file using SEARCH/REPLACE blocks. Does not overwrite the entire file.
+    Required diff_instructions format:
     <<<< SEARCH
-    dokładny kod do usunięcia
+    exact code to remove
     ====
-    nowy kod do wstawienia
+    new code to insert
     >>>> REPLACE
     """
     try:
-        if not workspace_path: raise ValueError("Brak workspace_path")
+        if not workspace_path: raise ValueError("Missing workspace_path")
         safe_path = _secure_path(workspace_path, path)
         os.makedirs(os.path.dirname(safe_path), exist_ok=True)
         
@@ -52,7 +52,7 @@ def edit_file(path: str, diff_instructions: str, workspace_path: str = "") -> st
         with open(safe_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Używamy tej samej logiki SEARCH/REPLACE co do tej pory
+        # Parse SEARCH/REPLACE blocks
         blocks = diff_instructions.split("<<<< SEARCH")
         
         if len(blocks) <= 1:
@@ -62,7 +62,7 @@ def edit_file(path: str, diff_instructions: str, workspace_path: str = "") -> st
                 return "Error: File is not empty. You MUST use <<<< SEARCH ... ==== ... >>>> REPLACE blocks to edit it."
         else:
             for block in blocks[1:]:
-                # Usuwamy ewentualny newline bezpośrednio po <<<< SEARCH
+                # Strip leading newline immediately after <<<< SEARCH
                 block = block.lstrip('\n')
                 
                 if "====\n" not in block or ">>>> REPLACE" not in block:
@@ -71,20 +71,17 @@ def edit_file(path: str, diff_instructions: str, workspace_path: str = "") -> st
                 search_part, rest = block.split("====\n", 1)
                 replace_part = rest.split(">>>> REPLACE")[0]
                 
-                # Usuwamy zbędne białe znaki na końcach, ale zachowujemy strukturę wewnątrz
+                # Strip trailing whitespace but preserve internal structure
                 search_part = search_part.rstrip('\n')
                 replace_part = replace_part.rstrip('\n')
 
                 if search_part == "":
                     if content == "":
-                        # Pierwsze wpisanie do pustego pliku
+                        # First write to an empty file
                         content = replace_part
                     else:
-                        # Jeśli plik nie jest pusty, puste SEARCH oznacza błąd lub próbę dopisania na początku
-                        # Zmieniamy na bezpieczniejsze zachowanie: dopisz tylko jeśli to ma sens, 
-                        # ale AI powinno użyć konkretnego SEARCH.
-                        # Na potrzeby stabilności: jeśli AI podało puste SEARCH dla niepustego pliku,
-                        # to prawdopodobnie błąd modelu - zwróćmy błąd, by wymusić precyzję.
+                        # Non-empty file with empty SEARCH block is likely a model error.
+                        # For stability: return an error to force precision.
                         return f"Error: SEARCH block is empty but file '{path}' already has content. Please specify what to replace."
                 else:
                     if search_part not in content:
@@ -95,7 +92,7 @@ def edit_file(path: str, diff_instructions: str, workspace_path: str = "") -> st
             try:
                 ast.parse(content)
             except SyntaxError as e:
-                return f"SyntaxError at line {e.lineno}, offset {e.offset}: {e.msg}. Zapis przerwany. Popraw składnię i spróbuj ponownie."
+                return f"SyntaxError at line {e.lineno}, offset {e.offset}: {e.msg}. Write aborted. Fix the syntax and try again."
 
         with open(safe_path, 'w', encoding='utf-8') as f:
             f.write(content)

@@ -1,11 +1,11 @@
 from typing import List, Optional
 from pydantic import BaseModel, Field
 
-# --- MODELE DANYCH (PYDANTIC) ---
+# --- DATA MODELS (PYDANTIC) ---
 
 class ArchitectOutput(BaseModel):
-    response: str = Field(description="Tekstowa odpowiedź Architekta do użytkownika.")
-    wbs: Optional[List['Epic']] = Field(default=None, description="Wygenerowany plan WBS (jeśli wymagany w tej turze).")
+    response: str = Field(description="Text response from the Architect to the user.")
+    wbs: Optional[List['Epic']] = Field(default=None, description="Generated WBS plan (if required in this turn).")
 
 class FileMetadata(BaseModel):
     path: str

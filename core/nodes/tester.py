@@ -8,7 +8,7 @@ def tester_node(state: AgentState) -> dict:
     messages = state.get("messages",[])
     if not messages: return {}
         
-    # 1. Znajdź ostatnią wiadomość AI, która posiada tool_calls
+    # 1. Find the last AI message that contains tool_calls
     last_ai_message = None
     for m in reversed(messages):
         m_type = getattr(m, "type", None) or (m.get("type") if isinstance(m, dict) else None)
@@ -20,8 +20,8 @@ def tester_node(state: AgentState) -> dict:
     if not last_ai_message:
         return {}
 
-    # 2. Pobierz ID narzędzi, które już mają odpowiedzi w tej konkretnej turze
-    # Szukamy tylko wiadomości ToolMessage, które wystąpiły PO last_ai_message
+    # 2. Get IDs of tools that already have responses in this specific turn
+    # Only look for ToolMessages that appeared AFTER last_ai_message
     last_ai_idx = messages.index(last_ai_message)
     already_responded_ids = set()
     for m in messages[last_ai_idx+1:]:
@@ -46,28 +46,28 @@ def tester_node(state: AgentState) -> dict:
     fs_success = True
     
     
-    # 3. Iteruj po WSZYSTKICH wywołaniach narzędzi z ostatniej wiadomości AI
+    # 3. Iterate over ALL tool calls from the last AI message
     tool_calls = getattr(last_ai_message, "tool_calls", []) or (last_ai_message.get("tool_calls") if isinstance(last_ai_message, dict) else [])
     
     for tool_call in tool_calls:
         tool_id = tool_call["id"]
         tool_name = tool_call["name"]
         
-        # Jeśli już odpowiedzieliśmy na to wywołanie, pomiń
+        # Already responded to this call — skip
         if tool_id in already_responded_ids:
             continue
             
         processed_any_tool = True
         tool_args = tool_call["args"].copy()
         
-        # Przygotowanie argumentów
+        # Prepare arguments
         if tool_name in ["read_file", "edit_file", "execute_subprocess"]:
             tool_args["workspace_path"] = workspace_path
         if tool_name == "execute_subprocess":
             tool_args["task_id"] = current_task_id
             executed_subprocess = True
         
-        # Wykonanie narzędzia
+        # Execute the tool
         if tool_name in available_tools:
             try:
                 result = available_tools[tool_name].invoke(tool_args)
@@ -85,7 +85,7 @@ def tester_node(state: AgentState) -> dict:
                 fs_success = False
                 new_messages.append(ToolMessage(content=f"System Error: {str(e)}", tool_call_id=tool_id, name=tool_name))
         else:
-            # Zawsze zwracaj ToolMessage dla nieznanych narzędzi (wymóg Vertex AI)
+            # Always return a ToolMessage for unrecognized tools (Vertex AI requirement)
             new_messages.append(ToolMessage(
                 content=f"Error: Tool '{tool_name}' is not recognized.", 
                 tool_call_id=tool_id,
@@ -103,8 +103,8 @@ def tester_node(state: AgentState) -> dict:
             "timestamp": time.time()
         })
     elif not processed_any_tool:
-        # KRYTYCZNE: Jeśli Koder nic nie zrobił (brak tool_calls), musimy to odnotować jako błąd,
-        # aby uniknąć pętli nieskończonej.
+        # CRITICAL: If the Coder did nothing (no tool_calls), log it as a failure
+        # to prevent infinite loops.
         new_logs.append({
             "task_id": current_task_id,
             "command": "none",
@@ -116,7 +116,7 @@ def tester_node(state: AgentState) -> dict:
 
     wbs = state.get("wbs",[])
     updated_wbs = wbs.copy() if isinstance(wbs, list) else[]
-    new_status = "pending"  # Domyślny; nadpisany poniżej jeśli są logi
+    new_status = "pending"  # Default; overridden below if logs exist
     
     if new_logs:
         last_log = new_logs[-1]
@@ -146,10 +146,10 @@ def tester_node(state: AgentState) -> dict:
     result_state = {}
     messages_to_remove = []
 
-    # Jeśli zadanie zakończono sukcesem, czyścimy historię z szumu (MODUŁ 4)
+    # On task success, clean up technical noise from the history (MODULE 4)
     if new_status == "completed":
-        # Usuwamy techniczne wiadomości ToolMessage i AIMessage z wywołaniami
-        # Pozostawiamy HumanMessage i SystemMessage dla zachowania intencji
+        # Remove technical ToolMessages and AIMessages with tool calls.
+        # Keep HumanMessages and SystemMessages to preserve intent.
         for msg in messages:
             is_tool = isinstance(msg, ToolMessage)
             is_ai_with_tools = isinstance(msg, AIMessage) and msg.tool_calls
@@ -157,20 +157,20 @@ def tester_node(state: AgentState) -> dict:
             if (is_tool or is_ai_with_tools) and hasattr(msg, "id") and msg.id:
                 messages_to_remove.append(RemoveMessage(id=msg.id))
         
-        # Resetowanie logów przenosimy do momentu faktycznego przejścia do nowego zadania w Routerze
+        # Log reset deferred to the actual task transition in the Router
         pass
 
-    # Finalne pakowanie stanu
+    # Final state packaging
     if new_messages or messages_to_remove:
         result_state["messages"] = new_messages + messages_to_remove
     
     if new_logs: 
         result_state["execution_logs"] = new_logs
-        # Jeśli ostatnia operacja się nie udała, zwiększamy licznik prób
+        # If the last operation failed, increment the retry counter
         if new_status == "failed":
             result_state["retry_count"] = state.get("retry_count", 0) + 1
         else:
-            result_state["retry_count"] = 0 # Reset po sukcesie
+            result_state["retry_count"] = 0 # Reset on success
             
     if updated_wbs: 
         result_state["wbs"] = updated_wbs

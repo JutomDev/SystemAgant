@@ -7,12 +7,12 @@ from core.models import ExecutionLog
 @tool
 def execute_subprocess(command: str, task_id: str = "UNKNOWN", workspace_path: str = "") -> dict:
     """
-    Wykonuje polecenie w izolowanym podprocesie. 
-    Zwraca zrzut modelu ExecutionLog (dict).
+    Executes a command in an isolated subprocess.
+    Returns an ExecutionLog model dump (dict).
     """
     start_time = time.time()
     try:
-        # Używamy workspace_path jako katalogu roboczego, jeśli jest podany
+        # Use workspace_path as the working directory if provided
         cwd = workspace_path if workspace_path and os.path.exists(workspace_path) else None
         
         result = subprocess.run(

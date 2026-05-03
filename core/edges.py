@@ -11,13 +11,12 @@ def router_condition(state: AgentState) -> Literal["architect", "coder", "human_
 def tester_condition(state: AgentState) -> Literal["coder", "human_approval", "architect", "router"]:
     logs = state.get("execution_logs", [])
     if not logs:
-        # Jeśli nie ma logów, a jesteśmy tu, to znaczy że albo wszystko ok, albo bot nic nie zrobił.
-        # Bezpieczniej iść do użytkownika.
+        # No logs present — safer to hand control to the user for review.
         return "human_approval"
         
     current_task_id = state.get("current_task_id")
     
-    # Filtrujemy logi tylko dla bieżącego zadania
+    # Filter logs for the current task only
     current_logs = [
         l for l in logs 
         if (isinstance(l, dict) and l.get("task_id") == current_task_id) or 
@@ -25,25 +24,23 @@ def tester_condition(state: AgentState) -> Literal["coder", "human_approval", "a
     ]
     
     if not current_logs: 
-        # Jeśli brak logów, traktujemy to jako błąd wykonania/brak akcji
+        # No logs for this task — treat as execution failure / no action taken
         retry_count = state.get("retry_count", 0)
         if retry_count < 3:
             return "coder"
         return "architect"
         
     last_log = current_logs[-1]
-    # Bezpieczna ekstrakcja dla dict i obiektów Pydantic
+    # Safe extraction for both dict and Pydantic objects
     exit_code = last_log.get("exit_code", 1) if isinstance(last_log, dict) else getattr(last_log, "exit_code", 1)
     command = last_log.get("command") if isinstance(last_log, dict) else getattr(last_log, "command", "")
 
     if exit_code == 0: 
-        # Jeśli operacja się udała, pozwól botowi lecieć dalej do Routera, 
-        # który zdecyduje czy jest coś jeszcze do roboty.
+        # Success — forward to the Router, which will determine the next step.
         return "router"
     elif command == "none":
-        # Koder odpowiedział samym tekstem (brak tool_calls).
-        # ZAWSZE oddajemy kontrolę użytkownikowi - zapobiega nieskończonej pętli.
-        # Koder mógł zadać pytanie, zgłosić problem, lub po prostu nie wiedzieć co robić.
+        # Coder responded with text only (no tool_calls).
+        # ALWAYS hand control to the user — prevents infinite loops.
         return "human_approval"
     else:
         retry_count = state.get("retry_count", 0)

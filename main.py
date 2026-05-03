@@ -6,7 +6,7 @@ import warnings
 import json
 from langchain_core._api.deprecation import LangChainDeprecationWarning
 
-# Wyciszenie spamu z ostrzeżeniami LangChain w konsoli
+# Suppress LangChain deprecation warnings in the console
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings("ignore", category=LangChainDeprecationWarning)
 from pathlib import Path
@@ -18,7 +18,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_vertexai import ChatVertexAI
 from core.graph import create_graph
 
-# Inicjalizacja modelu PRO dla głębokich podsumowań HITL
+# Initialize PRO model for deep HITL summaries
 pro_communicator = ChatVertexAI(
     model_name="gemini-3.1-pro-preview", 
     location="global", 
@@ -27,7 +27,7 @@ pro_communicator = ChatVertexAI(
 )
 
 def generate_status_summary(wbs: list) -> str:
-    """MODUŁ 2: Deterministyczny Summarizer (Koszt: 0 tokenów)"""
+    """MODULE 2: Deterministic Summarizer (Cost: 0 tokens)"""
     last_completed = "Brak"
     next_step = "Brak"
     
@@ -83,14 +83,14 @@ def main():
     logging.info(f"Initializing session for project '{project_name}'")
     print(f"[*] Workspace: {workspace_path}")
     
-    # NAPRAWA: Otwarcie bazy przez Context Manager
+    # FIX: Open database using Context Manager
     with SqliteSaver.from_conn_string(str(db_path)) as memory:
         graph = create_graph(checkpointer=memory)
         
         thread_id = f"thread_{project_name}"
         config = {"configurable": {"thread_id": thread_id}}
         
-        # Wstrzyknięcie folderu roboczego do stanu na starcie!
+        # Inject workspace path into the initial state
         graph.update_state(config, {"workspace_path": str(workspace_path)})
         
         print("Wpisz 'exit' lub 'quit' aby zakończyć.\n")
@@ -111,8 +111,8 @@ def main():
                 
                 if user_input.lower() in ['exit', 'quit']: sys.exit(0)
                     
-                # Każda wiadomość od użytkownika (w tym ZATWIERDZAM) musi trafić do stanu,
-                # aby węzeł human_approval_node mógł ją zinterpretować i zmienić fazę projektu.
+                # Every user message (including APPROVALS) must be added to the state
+                # so the human_approval_node can interpret it and transition the project phase.
                 graph.update_state(config, {"messages": [HumanMessage(content=user_input)]})
                 events = graph.stream(None, config, stream_mode="updates")
             else:
@@ -133,11 +133,11 @@ def main():
                 for node_name, node_state in event.items():
                     print(f" -> [Wykonano: {node_name}]")
                     
-                    # NOWE: Drukowanie wiadomości od AI i Narzędzi
+                    # Print messages from AI and Tools
                     if node_state and "messages" in node_state and node_state["messages"]:
                         last_msg = node_state["messages"][-1]
                         
-                        # Sprawdzamy czy to AI (Tekst lub Tool Calls)
+                        # Check if the message is from AI (Text or Tool Calls)
                         msg_type = getattr(last_msg, "type", None) or (last_msg.get("type") if isinstance(last_msg, dict) else None)
                         
                         if msg_type == "ai":
@@ -151,16 +151,16 @@ def main():
                                     tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
                                     tc_args = tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", {})
                                     
-                                    # Czyścimy logi - nie wypisujemy całego kodu, jeśli jest za długi
+                                    # Sanitize logs - avoid printing the entire code block if it is too long
                                     args_str = json.dumps(tc_args, indent=2)
                                     if len(args_str) > 500:
-                                        # Wyciągamy tylko kluczowe info (ścieżkę pliku)
+                                        # Extract only key information (e.g., file path)
                                         path = tc_args.get("path") or tc_args.get("command") or "..."
                                         args_str = f'{{ "path": "{path}", "content": "... (truncated for readability)" }}'
                                         
                                     print(f" -> [INTENCJA]: {tc_name}({args_str})")
                         
-                        # Sprawdzamy czy to Wynik Narzędzia
+                        # Check if the message is a Tool Result
                         elif msg_type == "tool":
                             content = getattr(last_msg, "content", "") or (last_msg.get("content") if isinstance(last_msg, dict) else "")
                             print(f" -> [WYNIK]: {content}\n")

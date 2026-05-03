@@ -3,8 +3,8 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 
 def filter_architect_messages(messages: List[BaseMessage]) -> List[BaseMessage]:
     """
-    Filtruje historię wiadomości dla Architekta.
-    Usuwa techniczne wywołania narzędzi Kodera oraz wyniki tych narzędzi.
+    Filters the message history for the Architect.
+    Removes technical Coder tool calls and their results to reduce noise.
     """
     filtered_messages = []
     coder_tools = {"read_file", "edit_file", "execute_subprocess"}
@@ -16,6 +16,6 @@ def filter_architect_messages(messages: List[BaseMessage]) -> List[BaseMessage]:
             has_coder_tools = any(tc.get("name") in coder_tools for tc in msg.tool_calls)
             if not has_coder_tools:
                 filtered_messages.append(msg)
-        # ToolMessage są ignorowane
+        # ToolMessages are intentionally excluded
         
     return filtered_messages

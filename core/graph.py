@@ -8,15 +8,15 @@ from core.nodes.human import human_approval_node
 from core.edges import router_condition, tester_condition, human_approval_condition
 
 def architect_condition(state: AgentState):
-    # Jeśli jesteśmy w fazie burzy mózgów, wracamy do użytkownika (END), by mógł odpowiedzieć
+    # During brainstorming phase, return to the user (END) so they can respond
     if state.get("current_phase", "brainstorming") == "brainstorming":
         return "end"
         
-    # Powrót z konsultacji do Kodera
+    # Return from consultation back to the Coder
     if state.get("current_phase") == "execution" and state.get("consultation_retries", 0) > 0:
         return "coder"
         
-    # Jeśli Architekt wygenerował WBS, idziemy po akceptację
+    # If the Architect generated a WBS, proceed to user approval
     return "human_approval"
 
 def create_graph(checkpointer=None):
@@ -73,7 +73,7 @@ def create_graph(checkpointer=None):
         }
     )
     
-    # Kompilacja grafu z wbudowanym mechanizmem przerwań (HITL)
+    # Compile the graph with built-in interrupt mechanism (HITL)
     return workflow.compile(
         checkpointer=checkpointer,
         interrupt_before=["human_approval"]

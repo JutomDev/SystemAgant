@@ -3,7 +3,7 @@ from langchain_core.messages import HumanMessage
 
 def human_approval_node(state: AgentState) -> dict:
     """
-    Punkt kontrolny HITL. Analizuje wejście użytkownika i zmienia fazy projektu.
+    HITL checkpoint. Analyzes user input and transitions project phases.
     """
     messages = state.get("messages", [])
     last_human_msg = next((m.content for m in reversed(messages) if isinstance(m, HumanMessage)), "").upper()
@@ -13,7 +13,7 @@ def human_approval_node(state: AgentState) -> dict:
         "execution_logs": []
     }
     
-    # Logika akceptacji planu/stanu
+    # Plan/state approval logic
     if any(word in last_human_msg for word in ["ZATWIERDZAM", "START", "OK", "GO", "DAWAJ"]):
         updates["current_phase"] = "execution"
     elif any(word in last_human_msg for word in ["ODRZUĆ", "STOP", "POPRAW", "ZMIANA"]):

@@ -5,10 +5,10 @@ from core.tools.fs_tools import read_file, edit_file
 
 def sanitize_history(messages):
     """
-    KRYTYCZNE: Vertex AI wyrzuca błąd 400, jeśli na każde wywołanie narzędzia (ToolCall)
-    nie przypada dokładnie jedna odpowiedź (ToolMessage) w danej turze.
-    Ta funkcja naprawia uszkodzoną historię (np. wczytaną ze stanu bazy), wstrzykując
-    brakujące odpowiedzi, ZANIM wyślemy to do LLM.
+    CRITICAL: Vertex AI throws a 400 error if each tool call (ToolCall)
+    does not have exactly one corresponding response (ToolMessage) per turn.
+    This function repairs corrupted history (e.g., loaded from the database state)
+    by injecting missing responses BEFORE sending to the LLM.
     """
     sanitized = []
     pending_tool_calls = {}
@@ -17,7 +17,7 @@ def sanitize_history(messages):
         msg_type = getattr(msg, "type", None) or (msg.get("type") if isinstance(msg, dict) else None)
         
         if msg_type == "ai":
-            # Zamknij stare nieodpowiedziane
+            # Close old unanswered tool calls
             for tid in list(pending_tool_calls.keys()):
                 tc_name = pending_tool_calls[tid].get("name", "unknown_tool")
                 sanitized.append(ToolMessage(content="System: Tool interrupted by new AI message.", tool_call_id=tid, name=tc_name))
@@ -36,14 +36,14 @@ def sanitize_history(messages):
             
         else:
             # HumanMessage / SystemMessage
-            # Zamknij stare nieodpowiedziane ZANIM dodasz tę wiadomość!
+            # Close old unanswered tool calls BEFORE adding this message
             for tid in list(pending_tool_calls.keys()):
                 tc_name = pending_tool_calls[tid].get("name", "unknown_tool")
                 sanitized.append(ToolMessage(content="System: Tool bypassed by intervention.", tool_call_id=tid, name=tc_name))
                 del pending_tool_calls[tid]
             sanitized.append(msg)
             
-    # Zamknij cokolwiek zostało na końcu (np. Tester został przerwany w tej turze)
+    # Close anything remaining at the end (e.g., Tester was interrupted mid-turn)
     for tid in list(pending_tool_calls.keys()):
         tc_name = pending_tool_calls[tid].get("name", "unknown_tool")
         sanitized.append(ToolMessage(content="System: Tool execution pending/bypassed.", tool_call_id=tid, name=tc_name))
@@ -98,28 +98,28 @@ Nie generuj kodu jako zwykły tekst. Użyj narzędzia!
         if exit_code != 0:
             stderr = last_log.get("stderr", "") if isinstance(last_log, dict) else getattr(last_log, "stderr", "")
             
-            # Wymuszamy naprawę kodem zamiast sztucznego ToolMessage
+            # Force a code fix instead of an artificial ToolMessage
             messages.append(HumanMessage(
-                content=f"CRITICAL FIX REQUIRED: Poprzednia operacja narzędziowa (Exit Code {exit_code}) zakończyła się błędem.\nSzczegóły: {stderr}\nPrzeanalizuj odpowiedź narzędzia w historii i NATYCHMIAST napraw ten błąd, generując poprawne wywołanie narzędzia."
+                content=f"CRITICAL FIX REQUIRED: The previous tool operation (Exit Code {exit_code}) failed.\nDetails: {stderr}\nAnalyze the tool response in history and IMMEDIATELY fix this error by generating a correct tool call."
             ))
 
-    # 1. Dokonaj sanityzacji historii i usuń puste wiadomości (zapobiega błędowi 400)
+    # 1. Sanitize the history and remove empty messages (prevents 400 error)
     safe_messages = sanitize_history(messages)
     coder_system_msg = SystemMessage(content=sys_instruct)
     final_messages = [coder_system_msg]
     for m in safe_messages:
-        # Gemini wymaga, aby każda wiadomość miała treść lub wywołanie narzędzia
+        # Gemini requires every message to have content or a tool call
         m_content = getattr(m, "content", "")
         m_tools = getattr(m, "tool_calls", [])
         if m_content or m_tools:
             final_messages.append(m)
         elif isinstance(m, ToolMessage): # ToolMessage musi być, nawet jeśli wynik to pusty string
-            # SAFETY NET: Gemini wymaga pola 'name' w każdym function_response
+            # SAFETY NET: Gemini requires a 'name' field in every function_response
             if not getattr(m, "name", None):
                 m = ToolMessage(content=m.content or "[empty]", tool_call_id=m.tool_call_id, name="unknown_tool")
             final_messages.append(m)
 
-    # 2. Wywołaj model
+    # 2. Invoke the model
     response = llm_with_tools.invoke(final_messages)
     
     wbs_list = state.get("wbs",[])
