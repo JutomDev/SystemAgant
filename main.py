@@ -38,7 +38,7 @@ def generate_status_summary(wbs: list) -> str:
         tasks = epic.get("tasks", []) if isinstance(epic, dict) else getattr(epic, "tasks", [])
         for task in tasks:
             status = task.get("status") if isinstance(task, dict) else getattr(task, "status", "pending")
-            title = task.get("title") if isinstance(task, dict) else getattr(task, "title", "Zadanie")
+            title = task.get("description") if isinstance(task, dict) else getattr(task, "description", "Zadanie")
             
             if status == "completed":
                 last_completed = title

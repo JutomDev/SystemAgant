@@ -1,3 +1,4 @@
+import os
 from langchain_core.messages import SystemMessage, AIMessage
 from langchain_google_vertexai import ChatVertexAI
 from core.state import AgentState
@@ -44,11 +45,12 @@ def architect_node(state: AgentState) -> dict:
         consultant_instruct = f"""<role>Jesteś Principal AI Architectem w trybie interwencji krytycznej.</role>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
-<instructions>Koder utknął. Przeanalizuj historię wiadomości i błędy z testów. Zaproponuj konkretne, innowacyjne obejście problemu. Przekaż Koderowi dokładne instrukcje nowej implementacji.</instructions>"""
+<instructions>Koder utknął. Przeanalizuj historię wiadomości i błędy z testów. Zaproponuj konkretne, innowacyjne obejście problemu. Przekaż Koderowi dokładne instrukcje nowej implementacji.
+WAŻNE: NIGDY nie generuj bloków kodu. Nie pisz gotowego kodu. Opisz Koderowi CO ma zmienić i DLACZEGO, ale to ON musi użyć narzędzia edit_file do wprowadzenia zmian. Ty jesteś strategiem, nie programistą.</instructions>"""
 
         # Instrukcja systemowa jako SystemMessage (gwarantowany kanał)
         consultant_sys_msg = SystemMessage(content=consultant_instruct)
-        response = consultant_llm.invoke([consultant_sys_msg] + state.get("messages", []))
+        response = consultant_llm.invoke([consultant_sys_msg] + filtered_messages)
         
         return {
             "messages": [response],
@@ -57,9 +59,22 @@ def architect_node(state: AgentState) -> dict:
         }
     else:
         # ====== TRYB PLANOWANIA WBS ======
+        workspace_path = state.get("workspace_path", "")
+        file_list = []
+        if workspace_path and os.path.exists(workspace_path):
+            try:
+                file_list = [f for f in os.listdir(workspace_path) if os.path.isfile(os.path.join(workspace_path, f))]
+            except Exception:
+                file_list = ["Error reading workspace"]
+
         planner_instruct = f"""<role>Jesteś AI Architectem odpowiedzialnym za planowanie struktury projektu.</role>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
+<context>
+Obecnie w folderze projektu ({workspace_path}) znajdują się następujące pliki: {file_list}
+Koder ma dostęp do tych plików za pomocą narzędzi read_file i edit_file. 
+NIGDY nie proś użytkownika o wklejanie kodu, który już jest na dysku. Zamiast tego zaplanuj zadanie analizy tych plików przez Kodera.
+</context>
 <instructions>Przeanalizuj wymagania użytkownika i stwórz/zaktualizuj plan WBS. Generuj ustrukturyzowany obiekt JSON z polem 'response' (Twoja tekstowa odpowiedź) oraz opcjonalnym polem 'wbs' (lista Epików z zadaniami).</instructions>"""
         
         structured_planner = planner_llm.with_structured_output(ArchitectOutput)
@@ -67,7 +82,9 @@ def architect_node(state: AgentState) -> dict:
         if current_phase == "brainstorming":
             brainstorm_prompt = SystemMessage(
                 content=(
-                    "You are in the 'brainstorming' phase. Your primary goal is to discuss the project with the user. "
+                    f"You are in the 'brainstorming' phase. Files available in workspace: {file_list}. "
+                    "You KNOW these files exist. You can acknowledge them. "
+                    "DO NOT ask the user to paste code from these files. "
                     "Ask clarifying questions and refine the concept. "
                     "DO NOT generate a WBS until the user explicitly confirms they are ready to plan."
                 )

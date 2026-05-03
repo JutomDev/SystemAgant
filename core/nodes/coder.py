@@ -19,7 +19,8 @@ def sanitize_history(messages):
         if msg_type == "ai":
             # Zamknij stare nieodpowiedziane
             for tid in list(pending_tool_calls.keys()):
-                sanitized.append(ToolMessage(content="System: Tool interrupted by new AI message.", tool_call_id=tid))
+                tc_name = pending_tool_calls[tid].get("name", "unknown_tool")
+                sanitized.append(ToolMessage(content="System: Tool interrupted by new AI message.", tool_call_id=tid, name=tc_name))
                 del pending_tool_calls[tid]
                 
             tool_calls = getattr(msg, "tool_calls", []) or (msg.get("tool_calls") if isinstance(msg, dict) else [])
@@ -37,13 +38,15 @@ def sanitize_history(messages):
             # HumanMessage / SystemMessage
             # Zamknij stare nieodpowiedziane ZANIM dodasz tę wiadomość!
             for tid in list(pending_tool_calls.keys()):
-                sanitized.append(ToolMessage(content="System: Tool bypassed by intervention.", tool_call_id=tid))
+                tc_name = pending_tool_calls[tid].get("name", "unknown_tool")
+                sanitized.append(ToolMessage(content="System: Tool bypassed by intervention.", tool_call_id=tid, name=tc_name))
                 del pending_tool_calls[tid]
             sanitized.append(msg)
             
     # Zamknij cokolwiek zostało na końcu (np. Tester został przerwany w tej turze)
     for tid in list(pending_tool_calls.keys()):
-        sanitized.append(ToolMessage(content="System: Tool execution pending/bypassed.", tool_call_id=tid))
+        tc_name = pending_tool_calls[tid].get("name", "unknown_tool")
+        sanitized.append(ToolMessage(content="System: Tool execution pending/bypassed.", tool_call_id=tid, name=tc_name))
         
     return sanitized
 
@@ -111,6 +114,9 @@ Nie generuj kodu jako zwykły tekst. Użyj narzędzia!
         if m_content or m_tools:
             final_messages.append(m)
         elif isinstance(m, ToolMessage): # ToolMessage musi być, nawet jeśli wynik to pusty string
+            # SAFETY NET: Gemini wymaga pola 'name' w każdym function_response
+            if not getattr(m, "name", None):
+                m = ToolMessage(content=m.content or "[empty]", tool_call_id=m.tool_call_id, name="unknown_tool")
             final_messages.append(m)
 
     # 2. Wywołaj model

@@ -41,22 +41,10 @@ def tester_condition(state: AgentState) -> Literal["coder", "human_approval", "a
         # który zdecyduje czy jest coś jeszcze do roboty.
         return "router"
     elif command == "none":
-        # Jeśli agent tylko "mówi" (brak tool_calls), sprawdzamy czy ma coś jeszcze do roboty
-        wbs = state.get("wbs", [])
-        has_pending = False
-        for epic in wbs:
-            for task in epic.get("tasks", []):
-                if task.get("status") in ["pending", "in_progress", "failed"]:
-                    has_pending = True
-                    break
-            if has_pending: break
-            
-        if has_pending:
-            # Jeśli są zadania, wymuszamy powrót do Routera/Kodera zamiast stopu
-            return "router"
-        else:
-            # Dopiero gdy faktycznie nie ma zadań, pytamy użytkownika
-            return "human_approval"
+        # Koder odpowiedział samym tekstem (brak tool_calls).
+        # ZAWSZE oddajemy kontrolę użytkownikowi - zapobiega nieskończonej pętli.
+        # Koder mógł zadać pytanie, zgłosić problem, lub po prostu nie wiedzieć co robić.
+        return "human_approval"
     else:
         retry_count = state.get("retry_count", 0)
         max_retries = 3

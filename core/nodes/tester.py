@@ -1,6 +1,5 @@
 import time
 from langchain_core.messages import AIMessage, ToolMessage, RemoveMessage
-from langchain_google_vertexai import ChatVertexAI
 from core.state import AgentState
 from core.tools.fs_tools import read_file, edit_file
 from core.tools.sys_tools import execute_subprocess
@@ -46,14 +45,6 @@ def tester_node(state: AgentState) -> dict:
     processed_any_tool = False
     fs_success = True
     
-    # Konfiguracja modelu do analizy logów i wyboru akcji (bez narzędzi)
-    llm = ChatVertexAI(
-        model_name="gemini-3.1-flash-lite-preview",
-        location="global",
-        project="nifty-saga-493918-c8",
-        temperature=0.0,
-        max_output_tokens=1024
-    )
     
     # 3. Iteruj po WSZYSTKICH wywołaniach narzędzi z ostatniej wiadomości AI
     tool_calls = getattr(last_ai_message, "tool_calls", []) or (last_ai_message.get("tool_calls") if isinstance(last_ai_message, dict) else [])
@@ -89,15 +80,16 @@ def tester_node(state: AgentState) -> dict:
                     result_str = str(result)
                     if "Error" in result_str or "failed" in result_str.lower():
                         fs_success = False
-                new_messages.append(ToolMessage(content=result_str, tool_call_id=tool_id))
+                new_messages.append(ToolMessage(content=result_str, tool_call_id=tool_id, name=tool_name))
             except Exception as e:
                 fs_success = False
-                new_messages.append(ToolMessage(content=f"System Error: {str(e)}", tool_call_id=tool_id))
+                new_messages.append(ToolMessage(content=f"System Error: {str(e)}", tool_call_id=tool_id, name=tool_name))
         else:
             # Zawsze zwracaj ToolMessage dla nieznanych narzędzi (wymóg Vertex AI)
             new_messages.append(ToolMessage(
                 content=f"Error: Tool '{tool_name}' is not recognized.", 
-                tool_call_id=tool_id
+                tool_call_id=tool_id,
+                name=tool_name
             ))
             fs_success = False
     
@@ -124,11 +116,20 @@ def tester_node(state: AgentState) -> dict:
 
     wbs = state.get("wbs",[])
     updated_wbs = wbs.copy() if isinstance(wbs, list) else[]
+    new_status = "pending"  # Domyślny; nadpisany poniżej jeśli są logi
     
     if new_logs:
         last_log = new_logs[-1]
         exit_code = last_log.get("exit_code", 1) if isinstance(last_log, dict) else getattr(last_log, "exit_code", 1)
-        new_status = "completed" if exit_code == 0 else "failed"
+        command = last_log.get("command", "") if isinstance(last_log, dict) else getattr(last_log, "command", "")
+        
+        if command == "internal_fs_operation":
+            new_status = "in_progress" if exit_code == 0 else "failed"
+        elif command == "none":
+            new_status = "in_progress"
+        else:
+            # Subprocess execution (tests, scripts)
+            new_status = "completed" if exit_code == 0 else "failed"
         
         for epic in updated_wbs:
             tasks = epic.tasks if hasattr(epic, 'tasks') else epic.get('tasks',[])
