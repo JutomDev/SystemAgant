@@ -42,11 +42,11 @@ def architect_node(state: AgentState) -> dict:
 
     if current_phase == "execution" and consultation_retries < 2:
         # ====== CONSULTATION MODE (DEBUGGING) ======
-        consultant_instruct = f"""<role>Jesteś Principal AI Architectem w trybie interwencji krytycznej.</role>
+        consultant_instruct = f"""<role>You are a Principal AI Architect in critical intervention mode.</role>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
-<instructions>Koder utknął. Przeanalizuj historię wiadomości i błędy z testów. Zaproponuj konkretne, innowacyjne obejście problemu. Przekaż Koderowi dokładne instrukcje nowej implementacji.
-WAŻNE: NIGDY nie generuj bloków kodu. Nie pisz gotowego kodu. Opisz Koderowi CO ma zmienić i DLACZEGO, ale to ON musi użyć narzędzia edit_file do wprowadzenia zmian. Ty jesteś strategiem, nie programistą.</instructions>"""
+<instructions>The Coder is stuck. Analyze the message history and test errors. Propose a specific, innovative workaround. Provide the Coder with precise implementation instructions.
+IMPORTANT: NEVER generate code blocks yourself. Do not write the code. Describe TO THE CODER what to change and WHY, but THEY must use the edit_file tool to apply changes. You are a strategist, not a programmer.</instructions>"""
 
         # System instruction as SystemMessage (guaranteed channel)
         consultant_sys_msg = SystemMessage(content=consultant_instruct)
@@ -67,15 +67,15 @@ WAŻNE: NIGDY nie generuj bloków kodu. Nie pisz gotowego kodu. Opisz Koderowi C
             except Exception:
                 file_list = ["Error reading workspace"]
 
-        planner_instruct = f"""<role>Jesteś AI Architectem odpowiedzialnym za planowanie struktury projektu.</role>
+        planner_instruct = f"""<role>You are an AI Architect responsible for planning the project structure.</role>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
 <context>
-Obecnie w folderze projektu ({workspace_path}) znajdują się następujące pliki: {file_list}
-Koder ma dostęp do tych plików za pomocą narzędzi read_file i edit_file. 
-NIGDY nie proś użytkownika o wklejanie kodu, który już jest na dysku. Zamiast tego zaplanuj zadanie analizy tych plików przez Kodera.
+The project folder ({workspace_path}) currently contains the following files: {file_list}
+The Coder has access to these files via read_file and edit_file tools.
+NEVER ask the user to paste code that is already on disk. Instead, plan a task for the Coder to analyze those files.
 </context>
-<instructions>Przeanalizuj wymagania użytkownika i stwórz/zaktualizuj plan WBS. Generuj ustrukturyzowany obiekt JSON z polem 'response' (Twoja tekstowa odpowiedź) oraz opcjonalnym polem 'wbs' (lista Epików z zadaniami).</instructions>"""
+<instructions>Analyze user requirements and create/update the WBS plan. Generate a structured JSON object with a 'response' field (your text response to the user) and an optional 'wbs' field (list of Epics with tasks).</instructions>"""
         
         structured_planner = planner_llm.with_structured_output(ArchitectOutput)
         
@@ -109,23 +109,23 @@ NIGDY nie proś użytkownika o wklejanie kodu, który już jest na dysku. Zamias
         plan_text = f"{main_response}\n"
 
         if wbs_list:
-            plan_text += "\nOto wygenerowany plan działania (WBS):\n"
+            plan_text += "\nHere is the generated Work Breakdown Structure (WBS):\n"
             for i, epic in enumerate(wbs_list):
                 # Handle both Pydantic objects and plain dictionaries
                 if isinstance(epic, dict):
-                    epic_name = epic.get('description', epic.get('epic_id', f'Epik {i+1}'))
+                    epic_name = epic.get('description', epic.get('epic_id', f'Epic {i+1}'))
                     tasks = epic.get('tasks', [])
                 else:
-                    epic_name = getattr(epic, 'description', getattr(epic, 'epic_id', f'Epik {i+1}'))
+                    epic_name = getattr(epic, 'description', getattr(epic, 'epic_id', f'Epic {i+1}'))
                     tasks = getattr(epic, 'tasks', [])
 
                 plan_text += f"\n🔹 **{epic_name}**\n"
                 
                 for task in tasks:
                     if isinstance(task, dict):
-                        task_desc = task.get('description', 'Zadanie')
+                        task_desc = task.get('description', 'Task')
                     else:
-                        task_desc = getattr(task, 'description', 'Zadanie')
+                        task_desc = getattr(task, 'description', 'Task')
                     plan_text += f"   - {task_desc}\n"
                     
             plan_text += "\nJeśli akceptujesz ten plan, wpisz 'ZATWIERDZAM' (lub jeśli graf zapyta o zgodę, potwierdź), albo podaj swoje poprawki."

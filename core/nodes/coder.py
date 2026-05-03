@@ -53,15 +53,15 @@ def sanitize_history(messages):
 def coder_node(state: AgentState) -> dict:
     principles = state.get("guiding_principles", {"core_constitution": [], "project_directives":[]})
     
-    sys_instruct = f"""<role>Jesteś Senior Software Engineer.</role>
+    sys_instruct = f"""<role>You are a Senior Software Engineer.</role>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
 <instructions>
-KRYTYCZNE: Jesteś maszyną wykonawczą. ABY WYKONAĆ ZADANIE, MUSISZ WYWOŁAĆ NARZĘDZIE `edit_file`. 
-NIGDY nie używaj pustego bloku SEARCH, jeśli plik posiada już treść.
-PREFERUJ EDYCJĘ CHIRURGICZNĄ: Nie nadpisuj całego pliku bez potrzeby. Znajdź konkretny fragment i podmień tylko jego część.
+CRITICAL: You are an execution machine. TO COMPLETE THE TASK, YOU MUST CALL THE `edit_file` TOOL.
+NEVER use an empty SEARCH block if the file already has content.
+PREFER SURGICAL EDITS: Do not overwrite the entire file unnecessarily. Find a specific snippet and replace only that part.
 
-Przykład poprawnej edycji:
+Example of a correct edit:
 <<<< SEARCH
 def old_function():
     print("old")
@@ -70,8 +70,8 @@ def new_function():
     print("new")
 >>>> REPLACE
 
-Jeśli zakończyłeś zadanie lub chcesz zadać pytanie, wyślij SAM TEKST. System wtedy zatrzyma się i poczeka na decyzję użytkownika.
-Nie generuj kodu jako zwykły tekst. Użyj narzędzia!
+If you have finished the task or want to ask a question, send ONLY TEXT. The system will then stop and wait for a user decision.
+Do not generate code as plain text. Use the tool!
 </instructions>"""
 
     llm = ChatVertexAI(

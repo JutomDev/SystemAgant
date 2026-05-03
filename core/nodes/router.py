@@ -33,7 +33,6 @@ def router_node(state: AgentState) -> dict:
     # Logic: Look for an Epic with all tasks 'completed',
     # while the system is still in 'execution' phase.
     all_epics_completed = True
-    epic_just_finished = False
     
     for epic in wbs:
         tasks = epic.get("tasks", []) if isinstance(epic, dict) else getattr(epic, "tasks", [])

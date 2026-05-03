@@ -30,12 +30,50 @@ def merge_file_system_state(left: Dict[str, FileMetadata], right: Dict[str, File
 
 def update_wbs(left: List[Epic], right: List[Epic]) -> List[Epic]:
     """
-    Updates the Work Breakdown Structure. 
-    Requires logic to overwrite specific Epics/Tasks based on their IDs.
+    Deep Merge for the Work Breakdown Structure.
+    Updates existing Epics and Tasks based on their IDs instead of overwriting.
+    Handles both Pydantic objects and plain dictionaries.
     """
-    if not left:
-        return right
-    return right
+    if not left: return right
+    if not right: return left
+
+    # Build a map of existing epics for fast lookup
+    merged_epics = {
+        (e.get("epic_id") if isinstance(e, dict) else getattr(e, "epic_id")): e
+        for e in left
+    }
+
+    for new_epic in right:
+        e_id = new_epic.get("epic_id") if isinstance(new_epic, dict) else getattr(new_epic, "epic_id")
+
+        if e_id not in merged_epics:
+            # New epic — simply add it
+            merged_epics[e_id] = new_epic
+        else:
+            # Epic exists — merge tasks by task_id
+            existing_epic = merged_epics[e_id]
+
+            existing_tasks = existing_epic.get("tasks", []) if isinstance(existing_epic, dict) else getattr(existing_epic, "tasks", [])
+            new_tasks = new_epic.get("tasks", []) if isinstance(new_epic, dict) else getattr(new_epic, "tasks", [])
+
+            merged_tasks = {
+                (t.get("task_id") if isinstance(t, dict) else getattr(t, "task_id")): t
+                for t in existing_tasks
+            }
+
+            for new_task in new_tasks:
+                t_id = new_task.get("task_id") if isinstance(new_task, dict) else getattr(new_task, "task_id")
+                merged_tasks[t_id] = new_task
+
+            # Write merged tasks back to the epic
+            if isinstance(existing_epic, dict):
+                existing_epic["tasks"] = list(merged_tasks.values())
+            else:
+                setattr(existing_epic, "tasks", list(merged_tasks.values()))
+
+            merged_epics[e_id] = existing_epic
+
+    return list(merged_epics.values())
 
 def update_execution_logs(left: List[ExecutionLog], right: List[ExecutionLog]) -> List[ExecutionLog]:
     """

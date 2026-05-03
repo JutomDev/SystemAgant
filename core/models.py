@@ -27,10 +27,8 @@ class AtomicTask(BaseModel):
     description: str
     target_files: List[str]
     status: str = Field(default="pending", description="pending | in_progress | completed | failed")
-    retry_count: int = 0
 
 class Epic(BaseModel):
     epic_id: str
     description: str
     tasks: List[AtomicTask]
-    status: str = Field(default="pending", description="pending | in_progress | completed")
