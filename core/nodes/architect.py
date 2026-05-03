@@ -17,6 +17,28 @@ def architect_node(state: AgentState) -> dict:
     
     principles = state.get("guiding_principles", {"core_constitution": [], "project_directives": []})
 
+    # 1. Konsultant - do rozwiązywania problemów i iteracji
+    consultant_llm = ChatVertexAI(
+        model_name="gemini-3.1-pro-preview", 
+        location="global", 
+        project="nifty-saga-493918-c8",
+        temperature=0.6,
+        max_output_tokens=8192,
+        model_kwargs={"thinking_level": "high"}
+    )
+    
+    # 2. Planista - do tworzenia WBS i fazy Brainstormingu
+    planner_llm = ChatVertexAI(
+        model_name="gemini-3.1-pro-preview", 
+        location="global", 
+        project="nifty-saga-493918-c8",
+        temperature=0.4,
+        top_p=0.95,
+        presence_penalty=0.1,
+        max_output_tokens=8192,
+        model_kwargs={"thinking_level": "high"}
+    )
+
     if current_phase == "execution" and consultation_retries < 2:
         # ====== TRYB KONSULTACJI (DEBUGOWANIA) ======
         consultant_instruct = f"""<role>Jesteś Principal AI Architectem w trybie interwencji krytycznej.</role>
@@ -24,15 +46,6 @@ def architect_node(state: AgentState) -> dict:
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
 <instructions>Koder utknął. Przeanalizuj historię wiadomości i błędy z testów. Zaproponuj konkretne, innowacyjne obejście problemu. Przekaż Koderowi dokładne instrukcje nowej implementacji.</instructions>"""
 
-        consultant_llm = ChatVertexAI(
-            model_name="gemini-3.1-pro-preview",
-            location="global",
-            project="nifty-saga-493918-c8",
-            temperature=0.7,
-            top_p=0.95,
-            max_output_tokens=2048,
-        )
-        
         # Instrukcja systemowa jako SystemMessage (gwarantowany kanał)
         consultant_sys_msg = SystemMessage(content=consultant_instruct)
         response = consultant_llm.invoke([consultant_sys_msg] + state.get("messages", []))
@@ -49,14 +62,6 @@ def architect_node(state: AgentState) -> dict:
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
 <instructions>Przeanalizuj wymagania użytkownika i stwórz/zaktualizuj plan WBS. Generuj ustrukturyzowany obiekt JSON z polem 'response' (Twoja tekstowa odpowiedź) oraz opcjonalnym polem 'wbs' (lista Epików z zadaniami).</instructions>"""
         
-        planner_llm = ChatVertexAI(
-            model_name="gemini-3.1-pro-preview",
-            location="global",
-            project="nifty-saga-493918-c8",
-            temperature=0.3,
-            top_p=0.95,
-            max_output_tokens=2048,
-        )
         structured_planner = planner_llm.with_structured_output(ArchitectOutput)
         
         if current_phase == "brainstorming":
@@ -108,7 +113,18 @@ def architect_node(state: AgentState) -> dict:
                     
             plan_text += "\nJeśli akceptujesz ten plan, wpisz 'ZATWIERDZAM' (lub jeśli graf zapyta o zgodę, potwierdź), albo podaj swoje poprawki."
 
+        # Konwersja obiektów Pydantic na słowniki przed zapisem do stanu
+        # Zapobiega to błędom serializacji w SqliteSaver
+        wbs_dicts = []
+        for epic in wbs_list:
+            if hasattr(epic, "dict"):
+                wbs_dicts.append(epic.dict())
+            elif hasattr(epic, "model_dump"):
+                wbs_dicts.append(epic.model_dump())
+            else:
+                wbs_dicts.append(epic)
+
         return {
-            "wbs": wbs_list,
+            "wbs": wbs_dicts,
             "messages": [AIMessage(content=plan_text)]
         }

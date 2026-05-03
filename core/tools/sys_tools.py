@@ -4,19 +4,23 @@ from langchain_core.tools import tool
 from core.models import ExecutionLog
 
 @tool
-def execute_subprocess(command: str, task_id: str = "UNKNOWN") -> dict:
+def execute_subprocess(command: str, task_id: str = "UNKNOWN", workspace_path: str = "") -> dict:
     """
     Wykonuje polecenie w izolowanym podprocesie. 
     Zwraca zrzut modelu ExecutionLog (dict).
     """
     start_time = time.time()
     try:
+        # Używamy workspace_path jako katalogu roboczego, jeśli jest podany
+        cwd = workspace_path if workspace_path and os.path.exists(workspace_path) else None
+        
         result = subprocess.run(
             command,
             shell=True,
             capture_output=True,
             text=True,
-            timeout=30
+            timeout=30,
+            cwd=cwd
         )
         return ExecutionLog(
             task_id=task_id,

@@ -58,7 +58,8 @@ def create_graph(checkpointer=None):
         {
             "coder": "coder",
             "architect": "architect",
-            "human_approval": "human_approval"
+            "human_approval": "human_approval",
+            "router": "router"
         }
     )
     

@@ -3,6 +3,7 @@ import sys
 import logging
 import logging.config
 import warnings
+import json
 from langchain_core._api.deprecation import LangChainDeprecationWarning
 
 # Wyciszenie spamu z ostrzeżeniami LangChain w konsoli
@@ -18,25 +19,33 @@ from langchain_google_vertexai import ChatVertexAI
 from core.graph import create_graph
 
 # Inicjalizacja modelu PRO dla głębokich podsumowań HITL
-pro_communicator = ChatVertexAI(model_name="gemini-3.1-pro-preview", location="global", project="nifty-saga-493918-c8", temperature=0.1)
+pro_communicator = ChatVertexAI(
+    model_name="gemini-3.1-pro-preview", 
+    location="global", 
+    project="nifty-saga-493918-c8", 
+    temperature=0.1
+)
 
-def generate_pro_hitl_summary(state_values: dict) -> str:
-    # Zbuduj kontekst z WBS, ostatnich logów i fazy
-    context = f"Faza: {state_values.get('current_phase')}, WBS: {state_values.get('wbs')}, Consultations: {state_values.get('consultation_retries')}"
+def generate_status_summary(wbs: list) -> str:
+    """MODUŁ 2: Deterministyczny Summarizer (Koszt: 0 tokenów)"""
+    last_completed = "Brak"
+    next_step = "Brak"
     
-    # Zamiast bezpośrednich obiektów Message, używamy ChatPromptTemplate
-    prompt_template = ChatPromptTemplate.from_messages([
-        ("system", "Jesteś Architektem Projektu. Podsumuj merytorycznie obecny stan prac, wskaż z czym jest problem (jeśli eskalowano błąd) i jasno określ, jakiej decyzji oczekujesz od użytkownika. Bądź zwięzły, profesjonalny i techniczny."),
-        ("human", "{context}")
-    ])
+    if not wbs:
+        return "\n--- STATUS PROJEKTU ---\nBrak aktywnego planu (WBS).\n-----------------------\n"
+
+    for epic in wbs:
+        tasks = epic.get("tasks", []) if isinstance(epic, dict) else getattr(epic, "tasks", [])
+        for task in tasks:
+            status = task.get("status") if isinstance(task, dict) else getattr(task, "status", "pending")
+            title = task.get("title") if isinstance(task, dict) else getattr(task, "title", "Zadanie")
+            
+            if status == "completed":
+                last_completed = title
+            elif status in ["pending", "in_progress", "failed"] and next_step == "Brak":
+                next_step = title
     
-    # Zbudowanie deklaratywnego łańcucha LCEL (Prompt -> Model -> Parser Stringów)
-    chain = prompt_template | pro_communicator | StrOutputParser()
-    
-    # Wywołanie łańcucha (StrOutputParser automatycznie usuwa 'thought_signature' i wyciąga czysty tekst)
-    clean_output = chain.invoke({"context": context})
-    
-    return f"\n=== RAPORT ARCHITEKTA ===\n{clean_output}\n=========================\n"
+    return f"\n--- STATUS PROJEKTU ---\nOstatnio ukończono: {last_completed}\nNastępny krok: {next_step}\n-----------------------\n"
 WORKSPACES_DIR = Path("./workspaces")
 
 def setup_logging(log_path: Path):
@@ -93,7 +102,7 @@ def main():
                 print("\n[HITL] SYSTEM OCZEKUJE NA DECYZJĘ STRATEGICZNĄ.")
                 print("Architekt przygotowuje raport stanu...")
                 try:
-                    summary = generate_pro_hitl_summary(graph.get_state(config).values)
+                    summary = generate_status_summary(graph.get_state(config).values.get("wbs", []))
                     print(summary)
                 except Exception as e:
                     print(f"\n[BŁĄD RAPORTU]: {e}")
@@ -102,28 +111,59 @@ def main():
                 
                 if user_input.lower() in ['exit', 'quit']: sys.exit(0)
                     
-                if user_input.upper() == "ZATWIERDZAM":
-                    events = graph.stream(None, config, stream_mode="updates")
-                else:
-                    graph.update_state(config, {"messages": [HumanMessage(content=user_input)]})
-                    events = graph.stream(None, config, stream_mode="updates")
+                # Każda wiadomość od użytkownika (w tym ZATWIERDZAM) musi trafić do stanu,
+                # aby węzeł human_approval_node mógł ją zinterpretować i zmienić fazę projektu.
+                graph.update_state(config, {"messages": [HumanMessage(content=user_input)]})
+                events = graph.stream(None, config, stream_mode="updates")
             else:
                 user_input = input("\nUżytkownik: ").strip()
                 if user_input.lower() in ['exit', 'quit']: sys.exit(0)
                 if not user_input: continue
                     
-                events = graph.stream({"messages": [HumanMessage(content=user_input)]}, config, stream_mode="updates")
+                events = graph.stream(
+                    {
+                        "messages": [HumanMessage(content=user_input)],
+                        "workspace_path": workspace_path
+                    }, 
+                    config, 
+                    stream_mode="updates"
+                )
             
             for event in events:
                 for node_name, node_state in event.items():
                     print(f" -> [Wykonano: {node_name}]")
                     
-                    # NOWE: Drukowanie wiadomości od AI
+                    # NOWE: Drukowanie wiadomości od AI i Narzędzi
                     if node_state and "messages" in node_state and node_state["messages"]:
                         last_msg = node_state["messages"][-1]
-                        # Sprawdzamy czy to AI i czy wiadomość ma tekst
-                        if last_msg.type == "ai" and last_msg.content:
-                            print(f"\n[AI {node_name.upper()}]: {last_msg.content}\n")
+                        
+                        # Sprawdzamy czy to AI (Tekst lub Tool Calls)
+                        msg_type = getattr(last_msg, "type", None) or (last_msg.get("type") if isinstance(last_msg, dict) else None)
+                        
+                        if msg_type == "ai":
+                            content = getattr(last_msg, "content", "") or (last_msg.get("content") if isinstance(last_msg, dict) else "")
+                            if content:
+                                print(f"\n[AI {node_name.upper()}]: {content}\n")
+                            
+                            tool_calls = getattr(last_msg, "tool_calls", []) or (last_msg.get("tool_calls") if isinstance(last_msg, dict) else [])
+                            if tool_calls:
+                                for tc in tool_calls:
+                                    tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
+                                    tc_args = tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", {})
+                                    
+                                    # Czyścimy logi - nie wypisujemy całego kodu, jeśli jest za długi
+                                    args_str = json.dumps(tc_args, indent=2)
+                                    if len(args_str) > 500:
+                                        # Wyciągamy tylko kluczowe info (ścieżkę pliku)
+                                        path = tc_args.get("path") or tc_args.get("command") or "..."
+                                        args_str = f'{{ "path": "{path}", "content": "... (truncated for readability)" }}'
+                                        
+                                    print(f" -> [INTENCJA]: {tc_name}({args_str})")
+                        
+                        # Sprawdzamy czy to Wynik Narzędzia
+                        elif msg_type == "tool":
+                            content = getattr(last_msg, "content", "") or (last_msg.get("content") if isinstance(last_msg, dict) else "")
+                            print(f" -> [WYNIK]: {content}\n")
 
 if __name__ == "__main__":
     main()

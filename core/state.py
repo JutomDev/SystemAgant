@@ -6,7 +6,13 @@ from core.models import FileMetadata, ExecutionLog, Epic
 from pydantic import BaseModel, Field
 
 class GuidingPrinciples(BaseModel):
-    core_constitution: List[str] = Field(default_factory=lambda: ["Pisz bezpieczny i zoptymalizowany kod.", "Zawsze sprawdzaj domykanie tagów i poprawność składni."])
+    core_constitution: List[str] = Field(default_factory=lambda: [
+        "STRICLY SEPARATION OF CONCERNS: Architect plans, Coder implements intent, Tester executes tools.",
+        "ZERO TOLERANCE FOR SYNTAX ERRORS: Always validate code before proposing.",
+        "SECURITY FIRST: Use safe subprocess calls and validated paths.",
+        "MODULARITY: Prefer small, single-purpose functions and files.",
+        "EXPLICIT OVER IMPLICIT: Always explain technical decisions in AI messages."
+    ])
     project_directives: List[str] = Field(default_factory=list)
 
 # --- FUNKCJE REDUKUJĄCE (REDUCERS) ---
