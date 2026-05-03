@@ -11,6 +11,25 @@ def execute_subprocess(command: str, task_id: str = "UNKNOWN", workspace_path: s
     Returns an ExecutionLog model dump (dict).
     """
     start_time = time.time()
+    
+    # --- SECURITY GUARDRAILS ---
+    forbidden_substrings = [
+        "sudo ", "rm -rf /", "rm -rf *", "mkfs", "reboot", "shutdown",
+        "~/.ssh", "/etc/passwd", "/etc/shadow", "C:\\Windows"
+    ]
+    
+    command_check = command.lower()
+    for forbidden in forbidden_substrings:
+        if forbidden.lower() in command_check:
+            return ExecutionLog(
+                task_id=task_id,
+                command=command,
+                stdout="",
+                stderr="SECURITY BREACH PREVENTED: Command contains forbidden operations or paths. Do not attempt to access system files or use destructive commands.",
+                exit_code=126,
+                timestamp=start_time
+            ).model_dump()
+
     try:
         # Use workspace_path as the working directory if provided
         cwd = workspace_path if workspace_path and os.path.exists(workspace_path) else None

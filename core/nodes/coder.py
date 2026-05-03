@@ -2,6 +2,7 @@ from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, System
 from langchain_google_vertexai import ChatVertexAI
 from core.state import AgentState
 from core.tools.fs_tools import read_file, edit_file
+from core.tools.sys_tools import execute_subprocess
 
 def sanitize_history(messages):
     """
@@ -53,25 +54,20 @@ def sanitize_history(messages):
 def coder_node(state: AgentState) -> dict:
     principles = state.get("guiding_principles", {"core_constitution": [], "project_directives":[]})
     
-    sys_instruct = f"""<role>You are a Senior Software Engineer.</role>
+    sys_instruct = f"""<role>You are a Senior Software Engineer with FULL CI/CD AUTONOMY.</role>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
 <instructions>
-CRITICAL: You are an execution machine. TO COMPLETE THE TASK, YOU MUST CALL THE `edit_file` TOOL.
-NEVER use an empty SEARCH block if the file already has content.
-PREFER SURGICAL EDITS: Do not overwrite the entire file unnecessarily. Find a specific snippet and replace only that part.
+CRITICAL: You are an execution machine. 
+1. TO IMPLEMENT CODE: You MUST call the `edit_file` tool.
+2. TO BUILD/COMPILE/TEST: You are fully authorized and REQUIRED to use the `execute_subprocess` tool for running build scripts (e.g., `python build_exe.py`), compilers (PyInstaller), or tests. 
 
-Example of a correct edit:
-<<<< SEARCH
-def old_function():
-    print("old")
-====
-def new_function():
-    print("new")
->>>> REPLACE
+NEVER ask the user to run a script manually in the terminal if you can execute it yourself via `execute_subprocess`. You are responsible for delivering the final compiled artifact, not just the source code.
+
+PREFER SURGICAL EDITS: Do not overwrite the entire file unnecessarily. Find a specific snippet and replace only that part using the SEARCH/REPLACE block.
 
 If you have finished the task or want to ask a question, send ONLY TEXT. The system will then stop and wait for a user decision.
-Do not generate code as plain text. Use the tool!
+Do not generate code as plain text. Use the tools!
 </instructions>"""
 
     llm = ChatVertexAI(
@@ -84,7 +80,7 @@ Do not generate code as plain text. Use the tool!
         max_output_tokens=16384,
         model_kwargs={"thinking_level": "high"}
     )
-    tools = [read_file, edit_file]
+    tools = [read_file, edit_file, execute_subprocess]
     llm_with_tools = llm.bind_tools(tools, tool_choice="auto", parallel_tool_calls=False)
     
     messages = state.get("messages",[]).copy()
