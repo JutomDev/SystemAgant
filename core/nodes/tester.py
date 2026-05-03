@@ -2,7 +2,7 @@ import time
 from langchain_core.messages import AIMessage, ToolMessage, RemoveMessage
 from core.state import AgentState
 from core.tools.fs_tools import read_file, edit_file
-from core.tools.sys_tools import execute_subprocess
+from core.tools.sys_tools import execute_subprocess, finish_task, start_background_server, kill_process_on_port
 
 def tester_node(state: AgentState) -> dict:
     messages = state.get("messages",[])
@@ -38,7 +38,10 @@ def tester_node(state: AgentState) -> dict:
     available_tools = {
         "read_file": read_file,
         "edit_file": edit_file,
-        "execute_subprocess": execute_subprocess
+        "execute_subprocess": execute_subprocess,
+        "finish_task": finish_task,
+        "start_background_server": start_background_server,
+        "kill_process_on_port": kill_process_on_port
     }
     
     executed_subprocess = False
@@ -76,6 +79,16 @@ def tester_node(state: AgentState) -> dict:
                     stdout_trunc = result['stdout'][-2000:] if len(result['stdout']) > 2000 else result['stdout']
                     stderr_trunc = result['stderr'][-2000:] if len(result['stderr']) > 2000 else result['stderr']
                     result_str = f"Exit code: {result['exit_code']}\nStdout: {stdout_trunc}\nStderr: {stderr_trunc}"
+                elif tool_name in ["finish_task", "start_background_server", "kill_process_on_port"]:
+                    new_logs.append({
+                        "task_id": current_task_id,
+                        "command": tool_name,
+                        "stdout": str(result),
+                        "stderr": "",
+                        "exit_code": 0,
+                        "timestamp": time.time()
+                    })
+                    result_str = str(result)
                 else:
                     result_str = str(result)
                     if "Error" in result_str or "failed" in result_str.lower():
@@ -123,13 +136,17 @@ def tester_node(state: AgentState) -> dict:
         exit_code = last_log.get("exit_code", 1) if isinstance(last_log, dict) else getattr(last_log, "exit_code", 1)
         command = last_log.get("command", "") if isinstance(last_log, dict) else getattr(last_log, "command", "")
         
-        if command == "internal_fs_operation":
+        if command == "finish_task":
+            new_status = "completed"
+        elif command == "internal_fs_operation":
             new_status = "in_progress" if exit_code == 0 else "failed"
         elif command == "none":
             new_status = "in_progress"
         else:
             # Subprocess execution (tests, scripts)
-            new_status = "completed" if exit_code == 0 else "failed"
+            # A successful command DOES NOT automatically complete the task.
+            # The Coder must explicitly call 'finish_task'.
+            new_status = "in_progress" if exit_code == 0 else "failed"
         
         for epic in updated_wbs:
             tasks = epic.tasks if hasattr(epic, 'tasks') else epic.get('tasks',[])
@@ -145,20 +162,17 @@ def tester_node(state: AgentState) -> dict:
 
     result_state = {}
     messages_to_remove = []
-
-    # On task success, clean up technical noise from the history (MODULE 4)
     if new_status == "completed":
-        # Remove technical ToolMessages and AIMessages with tool calls.
-        # Keep HumanMessages and SystemMessages to preserve intent.
-        for msg in messages:
-            is_tool = isinstance(msg, ToolMessage)
-            is_ai_with_tools = isinstance(msg, AIMessage) and msg.tool_calls
-            
-            if (is_tool or is_ai_with_tools) and hasattr(msg, "id") and msg.id:
-                messages_to_remove.append(RemoveMessage(id=msg.id))
+        # Task succeeded! Let's prune the intermediate thrashing (errors, tool calls)
+        # Keep the first few messages (system prompt, initial WBS) and the very last success messages.
+        safe_window_start = 5
         
-        # Log reset deferred to the actual task transition in the Router
-        pass
+        if len(messages) > safe_window_start:
+            # We don't remove the last message (which triggered this success)
+            for msg in messages[safe_window_start:-1]:
+                if isinstance(msg, ToolMessage) or (isinstance(msg, AIMessage) and getattr(msg, "tool_calls", [])):
+                    if hasattr(msg, "id") and msg.id:
+                        messages_to_remove.append(RemoveMessage(id=msg.id))
 
     # Final state packaging
     if new_messages or messages_to_remove:

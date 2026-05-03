@@ -40,7 +40,7 @@ def architect_node(state: AgentState) -> dict:
         model_kwargs={"thinking_level": "high"}
     )
 
-    if current_phase == "execution" and consultation_retries < 2:
+    if current_phase == "execution" and consultation_retries < 3:
         # ====== CONSULTATION MODE (DEBUGGING) ======
         consultant_instruct = f"""<role>You are a Principal AI Architect in critical intervention mode.</role>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>

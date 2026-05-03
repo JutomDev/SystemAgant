@@ -10,7 +10,9 @@ def human_approval_node(state: AgentState) -> dict:
     
     updates = {
         "current_iteration": 0,
-        "execution_logs": []
+        "execution_logs": [],
+        "retry_count": 0,
+        "consultation_retries": 0
     }
     
     # Plan/state approval logic

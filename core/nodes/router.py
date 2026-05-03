@@ -81,5 +81,6 @@ def router_node(state: AgentState) -> dict:
 
     return {
         "current_task_id": next_task_id,
-        "retry_count": 0
+        "retry_count": 0,
+        "consultation_retries": 0
     }

@@ -1,8 +1,9 @@
+import platform
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from langchain_google_vertexai import ChatVertexAI
 from core.state import AgentState
 from core.tools.fs_tools import read_file, edit_file
-from core.tools.sys_tools import execute_subprocess
+from core.tools.sys_tools import execute_subprocess, finish_task, start_background_server, kill_process_on_port
 
 def sanitize_history(messages):
     """
@@ -53,21 +54,24 @@ def sanitize_history(messages):
 
 def coder_node(state: AgentState) -> dict:
     principles = state.get("guiding_principles", {"core_constitution": [], "project_directives":[]})
-    
+    os_info = platform.system()
     sys_instruct = f"""<role>You are a Senior Software Engineer with FULL CI/CD AUTONOMY.</role>
+<environment>
+OPERATING SYSTEM: {os_info}
+</environment>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
 <instructions>
 CRITICAL: You are an execution machine. 
 1. TO IMPLEMENT CODE: You MUST call the `edit_file` tool.
-2. TO BUILD/COMPILE/TEST: You are fully authorized and REQUIRED to use the `execute_subprocess` tool for running build scripts (e.g., `python build_exe.py`), compilers (PyInstaller), or tests. 
-
-NEVER ask the user to run a script manually in the terminal if you can execute it yourself via `execute_subprocess`. You are responsible for delivering the final compiled artifact, not just the source code.
+2. TO BUILD/COMPILE/TEST: You are fully authorized and REQUIRED to use the `execute_subprocess` tool. 
+   - IF OPERATING SYSTEM IS WINDOWS: Use `dir` to list files. NEVER USE `ls`. Use `del` to delete, `copy` to copy.
+    - BAN ON `python -c` FOR ASYNC: Do NOT use `python -c` to test async code. Create a file and run it.
+4. TO RUN SERVERS: Do NOT use `execute_subprocess` for long-running servers (FastAPI, Node.js, etc.). Use `start_background_server`. If you encounter 'Address already in use', use `kill_process_on_port` first.
+5. TO FINISH: A task is ONLY completed when you call `finish_task`. Do not stop until the requirement is fully met and verified.
+6. DO NOT provide conversational text unless you are calling a tool or calling `finish_task`.
 
 PREFER SURGICAL EDITS: Do not overwrite the entire file unnecessarily. Find a specific snippet and replace only that part using the SEARCH/REPLACE block.
-
-If you have finished the task or want to ask a question, send ONLY TEXT. The system will then stop and wait for a user decision.
-Do not generate code as plain text. Use the tools!
 </instructions>"""
 
     llm = ChatVertexAI(
@@ -80,7 +84,7 @@ Do not generate code as plain text. Use the tools!
         max_output_tokens=16384,
         model_kwargs={"thinking_level": "high"}
     )
-    tools = [read_file, edit_file, execute_subprocess]
+    tools = [read_file, edit_file, execute_subprocess, finish_task, start_background_server, kill_process_on_port]
     llm_with_tools = llm.bind_tools(tools, tool_choice="auto", parallel_tool_calls=False)
     
     messages = state.get("messages",[]).copy()

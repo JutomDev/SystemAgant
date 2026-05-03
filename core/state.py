@@ -12,7 +12,9 @@ class GuidingPrinciples(BaseModel):
         "SECURITY FIRST: Use safe subprocess calls and validated paths.",
         "MODULARITY: Prefer small, single-purpose functions and files.",
         "EXPLICIT OVER IMPLICIT: Always explain technical decisions in AI messages.",
-        "FULL CI/CD AUTONOMY: You are fully authorized and REQUIRED to compile projects, build executables, and run build scripts (e.g., PyInstaller, build_exe.py) using the `execute_subprocess` tool. NEVER ask the user to run a script manually in the terminal if you can execute it yourself. You are responsible for delivering the final compiled artifact, not just the source code."
+        "FULL CI/CD AUTONOMY: You are fully authorized and REQUIRED to compile projects, build executables, and run build scripts (e.g., PyInstaller, build_exe.py) using the `execute_subprocess` tool. NEVER ask the user to run a script manually in the terminal if you can execute it yourself. You are responsible for delivering the final compiled artifact, not just the source code.",
+        "BAN ON `python -c` FOR ASYNC: You are STRICTLY FORBIDDEN from using `python -c` to test asynchronous code (WebSockets, LangGraph streams). It causes SyntaxErrors. Always create a physical debug file (e.g., debug_ws.py) and run it via `execute_subprocess`.",
+        "STATE MACHINE AWARENESS: A WBS task is ONLY completed when the Tester node sees a success AND you call `finish_task`. Do not assume completion based on partial success."
     ])
     project_directives: List[str] = Field(default_factory=list)
 
@@ -76,12 +78,10 @@ def update_wbs(left: List[Epic], right: List[Epic]) -> List[Epic]:
     return list(merged_epics.values())
 
 def update_execution_logs(left: List[ExecutionLog], right: List[ExecutionLog]) -> List[ExecutionLog]:
-    """
-    Allows appending logs or resetting them (if an empty list is provided).
-    """
     if right == []: # Explicit reset
         return []
-    return (left or []) + (right or [])
+    combined = (left or []) + (right or [])
+    return combined[-5:] # Keep only the last 5 execution logs to prevent state explosion
 
 # --- MAIN LANGGRAPH STATE (TYPEDDICT) ---
 
