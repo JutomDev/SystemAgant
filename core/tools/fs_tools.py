@@ -24,15 +24,21 @@ def read_file(path: str, workspace_path: str = "") -> str:
         return f"Error reading file: {str(e)}"
 
 @tool
-def edit_file(path: str, diff_instructions: str, workspace_path: str = "") -> str:
+def edit_file(path: str, diff_instructions: str, workspace_path: str = "", overwrite: bool = False) -> str:
     """
-    Edits a file using SEARCH/REPLACE blocks. Does not overwrite the entire file.
-    Required diff_instructions format:
+    Edits a file using SEARCH/REPLACE blocks OR overwrites the entire file.
+    
+    MODE 1 (Default, overwrite=False): Use SEARCH/REPLACE blocks.
+    CRITICAL: You can and SHOULD include MULTIPLE blocks in a single call to batch your edits.
+    Required format:
     <<<< SEARCH
-    exact code to remove
+    exact code to remove 1
     ====
-    new code to insert
+    new code to insert 1
     >>>> REPLACE
+    
+    MODE 2 (overwrite=True): The entire file content is replaced with diff_instructions.
+    Use this when you want to completely rewrite a file that already has content.
     """
     try:
         if not workspace_path: raise ValueError("Missing workspace_path")
@@ -52,41 +58,48 @@ def edit_file(path: str, diff_instructions: str, workspace_path: str = "") -> st
         with open(safe_path, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Parse SEARCH/REPLACE blocks
-        blocks = diff_instructions.split("<<<< SEARCH")
-        
-        if len(blocks) <= 1:
-            if content.strip() == "":
-                content = diff_instructions
-            else:
-                return "Error: File is not empty. You MUST use <<<< SEARCH ... ==== ... >>>> REPLACE blocks to edit it."
+        # MODE 2: Full overwrite — skip SEARCH/REPLACE parsing entirely
+        if overwrite:
+            content = diff_instructions
         else:
-            for block in blocks[1:]:
-                # Strip leading newline immediately after <<<< SEARCH
-                block = block.lstrip('\n')
-                
-                if "====\n" not in block or ">>>> REPLACE" not in block:
-                    return "Error: Invalid diff_instructions format. Missing ==== or >>>> REPLACE."
-                
-                search_part, rest = block.split("====\n", 1)
-                replace_part = rest.split(">>>> REPLACE")[0]
-                
-                # Strip trailing whitespace but preserve internal structure
-                search_part = search_part.rstrip('\n')
-                replace_part = replace_part.rstrip('\n')
-
-                if search_part == "":
-                    if content == "":
-                        # First write to an empty file
-                        content = replace_part
-                    else:
-                        # Non-empty file with empty SEARCH block is likely a model error.
-                        # For stability: return an error to force precision.
-                        return f"Error: SEARCH block is empty but file '{path}' already has content. Please specify what to replace."
+            # MODE 1: Parse SEARCH/REPLACE blocks
+            blocks = diff_instructions.split("<<<< SEARCH")
+            
+            if len(blocks) <= 1:
+                if content.strip() == "":
+                    content = diff_instructions
                 else:
-                    if search_part not in content:
-                        return f"Error: SEARCH block not found in file '{path}'. Ensure exact match."
-                    content = content.replace(search_part, replace_part, 1)
+                    # SAFETY: Instead of blocking, allow overwrite with a warning in debug log
+                    debug_path = os.path.join(workspace_path, "fs_debug.log")
+                    with open(debug_path, "a", encoding="utf-8") as df:
+                        df.write(f"[WARN] Auto-overwrite triggered for '{path}' (no SEARCH blocks, file not empty)\n")
+                    content = diff_instructions
+            else:
+                for block in blocks[1:]:
+                    # Strip leading newline immediately after <<<< SEARCH
+                    block = block.lstrip('\n')
+                    
+                    if "====\n" not in block or ">>>> REPLACE" not in block:
+                        return "Error: Invalid diff_instructions format. Missing ==== or >>>> REPLACE."
+                    
+                    search_part, rest = block.split("====\n", 1)
+                    replace_part = rest.split(">>>> REPLACE")[0]
+                    
+                    # Strip trailing whitespace but preserve internal structure
+                    search_part = search_part.rstrip('\n')
+                    replace_part = replace_part.rstrip('\n')
+
+                    if search_part == "":
+                        if content == "":
+                            # First write to an empty file
+                            content = replace_part
+                        else:
+                            # File exists with content — treat as full overwrite (safer than blocking)
+                            content = replace_part
+                    else:
+                        if search_part not in content:
+                            return f"Error: SEARCH block not found in file '{path}'. Ensure exact match."
+                        content = content.replace(search_part, replace_part, 1)
 
         if path.endswith('.py'):
             try:

@@ -55,24 +55,38 @@ def sanitize_history(messages):
 def coder_node(state: AgentState) -> dict:
     principles = state.get("guiding_principles", {"core_constitution": [], "project_directives":[]})
     os_info = platform.system()
-    sys_instruct = f"""<role>You are a Senior Software Engineer with FULL CI/CD AUTONOMY.</role>
-<environment>
-OPERATING SYSTEM: {os_info}
-</environment>
+    sys_instruct = rf"""<role>You are a Senior Software Engineer with FULL CI/CD AUTONOMY.</role>
+<environment>OPERATING SYSTEM: {os_info}</environment>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
-<instructions>
-CRITICAL: You are an execution machine. 
-1. TO IMPLEMENT CODE: You MUST call the `edit_file` tool.
-2. TO BUILD/COMPILE/TEST: You are fully authorized and REQUIRED to use the `execute_subprocess` tool. 
-   - IF OPERATING SYSTEM IS WINDOWS: Use `dir` to list files. NEVER USE `ls`. Use `del` to delete, `copy` to copy.
-    - BAN ON `python -c` FOR ASYNC: Do NOT use `python -c` to test async code. Create a file and run it.
-4. TO RUN SERVERS: Do NOT use `execute_subprocess` for long-running servers (FastAPI, Node.js, etc.). Use `start_background_server`. If you encounter 'Address already in use', use `kill_process_on_port` first.
-5. TO FINISH: A task is ONLY completed when you call `finish_task`. Do not stop until the requirement is fully met and verified.
-6. DO NOT provide conversational text unless you are calling a tool or calling `finish_task`.
 
-PREFER SURGICAL EDITS: Do not overwrite the entire file unnecessarily. Find a specific snippet and replace only that part using the SEARCH/REPLACE block.
-</instructions>"""
+<operating_modes>
+MODE 1: EXECUTION & DEBUGGING (Default)
+- SILENT EXECUTION: You are a machine. DO NOT output conversational text, explanations, or apologies. Your ONLY output should be Tool Calls.
+- BATCH EDITS: When using `edit_file`, DO NOT make single small edits. You MUST group multiple changes into a single tool call by providing multiple `<<<< SEARCH ==== >>>> REPLACE` blocks in the `diff_instructions`.
+- TEST-DRIVEN DEVELOPMENT: After editing a file, you MUST run tests or compile the code using `execute_subprocess` BEFORE editing another file. Do not fly blind.
+- CRITICAL: Use `start_background_server` for long-running processes (FastAPI, Next.js, etc.).
+- If a port is blocked, use `kill_process_on_port` immediately.
+
+MODE 2: TASK COMPLETION
+- When tests pass and requirements are met, you MUST call `finish_task`.
+- Provide a brief summary of what was done. This is the ONLY way to mark a task as COMPLETED.
+
+MODE 3: HUMAN CONVERSATION
+- If the User asks a direct question or gives a "STOP" command, reply in PLAIN TEXT.
+- Be concise. Do not use tools in this mode.
+</operating_modes>
+
+<critical_rules>
+- NEVER hallucinate tools.
+- OVERWRITE MODE: If you need to REPLACE THE ENTIRE CONTENT of an existing file, call `edit_file` with `overwrite=True`. The `diff_instructions` will become the new file content directly. Use this instead of trying to match SEARCH blocks for full rewrites.
+- PREFER SURGICAL EDITS: For small changes to existing files, use SEARCH/REPLACE blocks in `edit_file` (overwrite=False, the default).
+- ON WINDOWS: Use `dir` to list, `del` to delete. NEVER USE `ls`.
+- PYTHON ON WINDOWS: Use `.\.venv\Scripts\python.exe` — the system will auto-resolve the absolute path.
+- BAN ON `python -c` FOR ASYNC: Do NOT use `python -c` to test async or complex code. Create a temporary test file and run it instead.
+- TESTING METHODOLOGY: To validate frontend code, use `npm run build` in the frontend directory. To validate backend, use `.\.venv\Scripts\python.exe -c "import backend.app.main"` or run pytest. NEVER treat the raw content of a .tsx/.py file as an error.
+- ANTI-LOOP RULE (MANDATORY): If you have called `dir` or `read_file` more than 2 times in a row without calling `edit_file` or `execute_subprocess`, you are STUCK IN A LOOP. You MUST immediately use `edit_file` with `overwrite=True` to write the file, or call `finish_task` to end the task. NEVER call read_file more than twice consecutively.
+</critical_rules>"""
 
     llm = ChatVertexAI(
         model_name="gemini-3-flash-preview",
@@ -84,7 +98,7 @@ PREFER SURGICAL EDITS: Do not overwrite the entire file unnecessarily. Find a sp
         max_output_tokens=16384,
         model_kwargs={"thinking_level": "high"}
     )
-    tools = [read_file, edit_file, execute_subprocess, finish_task, start_background_server, kill_process_on_port]
+    tools = [read_file, edit_file, execute_subprocess, start_background_server, kill_process_on_port, finish_task]
     llm_with_tools = llm.bind_tools(tools, tool_choice="auto", parallel_tool_calls=False)
     
     messages = state.get("messages",[]).copy()
@@ -139,6 +153,5 @@ PREFER SURGICAL EDITS: Do not overwrite the entire file unnecessarily. Find a sp
     return {
         "messages": [response],
         "wbs": updated_wbs,
-        "current_iteration": current_iteration + 1,
-        "retry_count": state.get("retry_count", 0) + 1
+        "current_iteration": current_iteration + 1
     }

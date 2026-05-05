@@ -1,5 +1,5 @@
 import os
-from langchain_core.messages import SystemMessage, AIMessage
+from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from langchain_google_vertexai import ChatVertexAI
 from core.state import AgentState
 from core.models import ArchitectOutput
@@ -42,14 +42,20 @@ def architect_node(state: AgentState) -> dict:
 
     if current_phase == "execution" and consultation_retries < 3:
         # ====== CONSULTATION MODE (DEBUGGING) ======
-        consultant_instruct = f"""<role>You are a Principal AI Architect in critical intervention mode.</role>
+        consultant_instruct = rf"""<role>You are a Principal AI Architect in critical intervention mode.</role>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
 <instructions>The Coder is stuck. Analyze the message history and test errors. Propose a specific, innovative workaround. Provide the Coder with precise implementation instructions.
-IMPORTANT: NEVER generate code blocks yourself. Do not write the code. Describe TO THE CODER what to change and WHY, but THEY must use the edit_file tool to apply changes. You are a strategist, not a programmer.</instructions>"""
+IMPORTANT: NEVER generate code blocks yourself. Do not write the code. Describe TO THE CODER what to change and WHY, but THEY must use the edit_file tool to apply changes. You are a strategist, not a programmer.
+CRITICAL: You MUST output a detailed text response. NEVER output an empty message.</instructions>"""
 
         # System instruction as SystemMessage (guaranteed channel)
         consultant_sys_msg = SystemMessage(content=consultant_instruct)
+        
+        # Ensure at least one non-empty message exists (fixes Vertex AI error)
+        if not filtered_messages:
+            filtered_messages = [HumanMessage(content="Initialize architectural consultation.")]
+            
         response = consultant_llm.invoke([consultant_sys_msg] + filtered_messages)
         
         return {
@@ -67,7 +73,7 @@ IMPORTANT: NEVER generate code blocks yourself. Do not write the code. Describe 
             except Exception:
                 file_list = ["Error reading workspace"]
 
-        planner_instruct = f"""<role>You are an AI Architect responsible for planning the project structure.</role>
+        planner_instruct = rf"""<role>You are an AI Architect responsible for planning the project structure.</role>
 <core_constitution>\n{principles.get('core_constitution')}\n</core_constitution>
 <project_directives>\n{principles.get('project_directives')}\n</project_directives>
 <context>
@@ -83,10 +89,11 @@ NEVER ask the user to paste code that is already on disk. Instead, plan a task f
             brainstorm_prompt = SystemMessage(
                 content=(
                     f"You are in the 'brainstorming' phase. Files available in workspace: {file_list}. "
-                    "You KNOW these files exist. You can acknowledge them. "
-                    "DO NOT ask the user to paste code from these files. "
-                    "Ask clarifying questions and refine the concept. "
-                    "DO NOT generate a WBS until the user explicitly confirms they are ready to plan."
+                    "You are acting as a conversational partner and Technical Lead. "
+                    "The user might be asking for advice, discussing architecture, or requesting changes to the plan. "
+                    "1. Answer their questions directly and professionally. "
+                    "2. DO NOT generate a WBS JSON object unless the user explicitly says 'Create the plan' or 'Generate WBS'. "
+                    "3. If you are just answering a question, leave the 'wbs' field empty/null in your structured output and only provide the 'response' text."
                 )
             )
             filtered_messages.insert(0, brainstorm_prompt)

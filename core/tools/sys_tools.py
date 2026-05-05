@@ -43,13 +43,34 @@ def execute_subprocess(command: str, task_id: str = "UNKNOWN", workspace_path: s
         # Use workspace_path as the working directory if provided
         cwd = workspace_path if workspace_path and os.path.exists(workspace_path) else None
         
+        # FIX: Resolve .venv paths — .venv lives in the project root, NOT in the workspace
+        # When CWD is e.g. workspaces/ai_house_web, .\.venv\ doesn't exist there.
+        if cwd and '.venv' in command:
+            # Walk up from workspace_path to find .venv
+            search_dir = os.path.abspath(cwd)
+            for _ in range(5):  # Max 5 levels up
+                venv_candidate = os.path.join(search_dir, '.venv')
+                if os.path.isdir(venv_candidate):
+                    abs_venv = os.path.abspath(venv_candidate)
+                    # Replace relative .venv references with absolute path
+                    command = command.replace(r'.\.venv', abs_venv)
+                    command = command.replace('./.venv', abs_venv)
+                    command = command.replace('.venv', abs_venv)
+                    break
+                parent = os.path.dirname(search_dir)
+                if parent == search_dir:
+                    break  # Reached filesystem root
+                search_dir = parent
+        
         result = subprocess.run(
             command,
             shell=True,
             capture_output=True,
             text=True,
-            timeout=30,
-            cwd=cwd
+            timeout=120,
+            cwd=cwd,
+            encoding='utf-8',
+            errors='replace'
         )
         
         stdout_str = truncate_output(result.stdout)
@@ -72,7 +93,7 @@ def execute_subprocess(command: str, task_id: str = "UNKNOWN", workspace_path: s
             task_id=task_id,
             command=command,
             stdout=stdout_str,
-            stderr=f"TimeoutExpired (30s limit reached).\n{stderr_str}",
+            stderr=f"TimeoutExpired (120s limit reached).\n{stderr_str}",
             exit_code=124,
             timestamp=start_time
         ).model_dump()
@@ -123,37 +144,93 @@ def kill_process_on_port(port: int) -> str:
     return f"No processes found listening on port {port}."
 
 @tool
-def start_background_server(command: str, port: int, workspace_path: str = None) -> str:
+def start_background_server(command: str, port: int, workspace_path: str = None, task_id: str = "UNKNOWN") -> dict:
     """
     Use this tool ONLY to start long-running servers (like FastAPI, Node.js, Next.js).
     It runs the server in the background and polls the specified port until it is open.
-    DO NOT use execute_subprocess for servers.
+    Returns an ExecutionLog-like dict.
     """
-    import subprocess
+    port = int(port)  # Gemini may send 3000.0 (float)
     cwd = workspace_path if workspace_path and os.path.exists(workspace_path) else None
+    start_time = time.time()
+    
+    # DEBUG: Log resolved CWD for troubleshooting
+    print(f"[DEBUG start_background_server] workspace_path={workspace_path!r}, resolved cwd={cwd!r}, port={port}", flush=True)
+    
+    # Log file in workspace dir — overwritten on each start (no disk bloat)
+    log_file_path = os.path.join(cwd if cwd else ".", f"server_{port}.log")
+    log_file = None
     
     try:
-        # Uruchom w tle (nie czekamy na wynik)
+        log_file = open(log_file_path, "w", encoding="utf-8", errors="replace")
         process = subprocess.Popen(
             command,
             shell=True,
             cwd=cwd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
+            stdout=log_file,
+            stderr=subprocess.STDOUT,
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if os.name == 'nt' else 0
         )
         
-        # Port Polling: Czekamy aż serwer włączy nasłuch
-        max_retries = 15
+        # Port Polling: Wait for server to bind
+        max_retries = 20
         for i in range(max_retries):
             time.sleep(1)
+            # Check if process crashed
+            if process.poll() is not None:
+                log_file.close()
+                log_file = None
+                with open(log_file_path, "r", encoding="utf-8", errors="replace") as f:
+                    error_tail = "".join(f.readlines()[-30:])
+                return ExecutionLog(
+                    task_id=task_id,
+                    command=command,
+                    stdout="",
+                    stderr=f"Server process crashed with exit code {process.returncode}.\nLogs:\n{error_tail}",
+                    exit_code=process.returncode or 1,
+                    timestamp=start_time
+                ).model_dump()
+
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
                 result = sock.connect_ex(('127.0.0.1', port))
                 if result == 0:
-                    return f"Server started successfully in background (PID: {process.pid}) and is listening on port {port}."
+                    log_file.close()
+                    log_file = None
+                    return ExecutionLog(
+                        task_id=task_id,
+                        command=command,
+                        stdout=f"Server started successfully (PID: {process.pid}) on port {port}.",
+                        stderr="",
+                        exit_code=0,
+                        timestamp=start_time
+                    ).model_dump()
                     
-        # Jeśli port nadal zamknięty po 15 sekundach
+        # Timeout — server never bound to port
         process.terminate()
-        return f"Failed to start server: Process (PID: {process.pid}) timed out waiting to bind to port {port}."
+        log_file.close()
+        log_file = None
+        with open(log_file_path, "r", encoding="utf-8", errors="replace") as f:
+            error_tail = "".join(f.readlines()[-30:])
+            
+        return ExecutionLog(
+            task_id=task_id,
+            command=command,
+            stdout="",
+            stderr=f"Timeout waiting for server to bind to port {port}. Last logs:\n{error_tail}",
+            exit_code=124,
+            timestamp=start_time
+        ).model_dump()
         
     except Exception as e:
-        return f"Exception while starting background server: {str(e)}"
+        return ExecutionLog(
+            task_id=task_id,
+            command=command,
+            stdout="",
+            stderr=f"Exception while starting background server: {str(e)}",
+            exit_code=1,
+            timestamp=start_time
+        ).model_dump()
+    finally:
+        # Safety net: always close the log file handle
+        if log_file and not log_file.closed:
+            log_file.close()

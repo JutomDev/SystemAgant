@@ -45,6 +45,7 @@ def tester_node(state: AgentState) -> dict:
     }
     
     executed_subprocess = False
+    executed_bg_server = False
     processed_any_tool = False
     fs_success = True
     
@@ -79,7 +80,27 @@ def tester_node(state: AgentState) -> dict:
                     stdout_trunc = result['stdout'][-2000:] if len(result['stdout']) > 2000 else result['stdout']
                     stderr_trunc = result['stderr'][-2000:] if len(result['stderr']) > 2000 else result['stderr']
                     result_str = f"Exit code: {result['exit_code']}\nStdout: {stdout_trunc}\nStderr: {stderr_trunc}"
-                elif tool_name in ["finish_task", "start_background_server", "kill_process_on_port"]:
+                elif tool_name == "start_background_server":
+                    # start_background_server now returns an ExecutionLog dict
+                    # with the REAL exit_code — respect it!
+                    executed_bg_server = True
+                    if isinstance(result, dict):
+                        new_logs.append(result)
+                        stdout_trunc = (result.get('stdout','') or '')[-2000:]
+                        stderr_trunc = (result.get('stderr','') or '')[-2000:]
+                        result_str = f"Exit code: {result.get('exit_code', 1)}\nStdout: {stdout_trunc}\nStderr: {stderr_trunc}"
+                    else:
+                        # Fallback for legacy string return
+                        new_logs.append({
+                            "task_id": current_task_id,
+                            "command": tool_name,
+                            "stdout": str(result),
+                            "stderr": "",
+                            "exit_code": 0,
+                            "timestamp": time.time()
+                        })
+                        result_str = str(result)
+                elif tool_name in ["finish_task", "kill_process_on_port"]:
                     new_logs.append({
                         "task_id": current_task_id,
                         "command": tool_name,
@@ -106,7 +127,7 @@ def tester_node(state: AgentState) -> dict:
             ))
             fs_success = False
     
-    if processed_any_tool and not executed_subprocess:
+    if processed_any_tool and not executed_subprocess and not executed_bg_server:
         new_logs.append({
             "task_id": current_task_id,
             "command": "internal_fs_operation",
@@ -160,31 +181,34 @@ def tester_node(state: AgentState) -> dict:
                     else: task['status'] = new_status
                     break
 
-    result_state = {}
     messages_to_remove = []
-    if new_status == "completed":
-        # Task succeeded! Let's prune the intermediate thrashing (errors, tool calls)
-        # Keep the first few messages (system prompt, initial WBS) and the very last success messages.
-        safe_window_start = 5
+    # Jeśli zadanie zakończyło się sukcesem, czyścimy historię z błędów
+    if new_logs and new_logs[-1].get("exit_code", 1) == 0:
+        safe_window_start = 5 # Zostawiamy Konstytucję i początkowe ustalenia
         
-        if len(messages) > safe_window_start:
-            # We don't remove the last message (which triggered this success)
-            for msg in messages[safe_window_start:-1]:
+        if len(messages) > safe_window_start + 2:
+            # Iterujemy po "środku" historii
+            for msg in messages[safe_window_start:-2]:
+                # Usuwamy tylko wiadomości techniczne (narzędzia i ich wyniki)
                 if isinstance(msg, ToolMessage) or (isinstance(msg, AIMessage) and getattr(msg, "tool_calls", [])):
                     if hasattr(msg, "id") and msg.id:
                         messages_to_remove.append(RemoveMessage(id=msg.id))
 
-    # Final state packaging
-    if new_messages or messages_to_remove:
+    result_state = {}
+    if new_messages or messages_to_remove: 
         result_state["messages"] = new_messages + messages_to_remove
     
     if new_logs: 
         result_state["execution_logs"] = new_logs
-        # If the last operation failed, increment the retry counter
+        # RETRY COUNTER LOGIC:
+        # - "failed" -> INCREMENT (bot made an error)
+        # - "completed" (finish_task) -> RESET to 0 (task done, fresh start)
+        # - "in_progress" -> DO NOT TOUCH (dir/read_file must NOT reset the counter)
         if new_status == "failed":
             result_state["retry_count"] = state.get("retry_count", 0) + 1
-        else:
-            result_state["retry_count"] = 0 # Reset on success
+        elif new_status == "completed":
+            result_state["retry_count"] = 0  # Only reset on explicit task completion
+        # else: in_progress — leave retry_count unchanged (no key = no update)
             
     if updated_wbs: 
         result_state["wbs"] = updated_wbs

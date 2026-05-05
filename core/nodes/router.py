@@ -6,6 +6,30 @@ def router_node(state: AgentState) -> dict:
     """
     wbs = state.get("wbs", [])
     current_phase = state.get("current_phase", "brainstorming")
+    current_task_id = state.get("current_task_id")
+    
+    # 0. Check if the current task was just finished (finish_task called successfully)
+    logs = state.get("execution_logs", [])
+    if logs and current_task_id:
+        # tester.py might append 'internal_fs_operation' AFTER 'finish_task', so we check the last 5 logs
+        recent_logs = logs[-5:]
+        task_finished = any(
+            isinstance(l, dict) and l.get("command") == "finish_task" and l.get("exit_code", 1) == 0 
+            for l in recent_logs
+        )
+        if task_finished:
+            # Mark the task as completed in WBS
+            for epic in wbs:
+                tasks = epic.get("tasks", []) if isinstance(epic, dict) else getattr(epic, "tasks", [])
+                for task in tasks:
+                    tid = task.get("task_id") if isinstance(task, dict) else getattr(task, "task_id", None)
+                    if tid == current_task_id:
+                        if isinstance(task, dict):
+                            task["status"] = "completed"
+                        else:
+                            task.status = "completed"
+                        print(f"\n[bold green][Router] ✅ ZADANIE '{current_task_id}' ZAKOŃCZONE![/bold green]", flush=True)
+                        break
     
     # 1. Scan WBS for incomplete tasks and select the active task
     pending_tasks = False
@@ -79,8 +103,14 @@ def router_node(state: AgentState) -> dict:
             if get_epic_index(prev_task_id) != get_epic_index(next_task_id):
                 return {"current_phase": "hitl_approval", "current_task_id": next_task_id}
 
-    return {
-        "current_task_id": next_task_id,
-        "retry_count": 0,
-        "consultation_retries": 0
-    }
+    # Pobierz obecne ID zadania przed zmianą
+    old_task_id = state.get("current_task_id")
+    
+    result_state = {"current_phase": "execution", "current_task_id": next_task_id, "wbs": wbs}
+    
+    # Resetuj liczniki TYLKO jeśli zaczynamy nowe zadanie
+    if old_task_id != next_task_id:
+        result_state["retry_count"] = 0
+        result_state["consultation_retries"] = 0
+        
+    return result_state

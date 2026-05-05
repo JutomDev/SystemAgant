@@ -12,7 +12,14 @@ warnings.filterwarnings("ignore", category=LangChainDeprecationWarning)
 from pathlib import Path
 from uuid import uuid4
 from langgraph.checkpoint.sqlite import SqliteSaver
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from rich.console import Console
+from rich.panel import Panel
+from rich.live import Live
+from rich.text import Text
+from rich.markdown import Markdown
+
+console = Console()
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_vertexai import ChatVertexAI
@@ -99,21 +106,43 @@ def main():
             state = graph.get_state(config)
             
             if state.next and "human_approval" in state.next:
-                print("\n[HITL] SYSTEM OCZEKUJE NA DECYZJĘ STRATEGICZNĄ.")
-                print("Architekt przygotowuje raport stanu...")
+                state_values = graph.get_state(config).values
+                retry_count = state_values.get("retry_count", 0)
+                consultation_retries = state_values.get("consultation_retries", 0)
+                
+                console.print("\n[bold yellow]⏸️ SYSTEM ZATRZYMANY (HITL)[/bold yellow]")
+                
+                # Dynamiczna diagnoza powodu zatrzymania
+                if consultation_retries >= 3:
+                    console.print("[bold red]POWÓD:[/bold red] Architekt wyczerpał limit prób naprawy (Eskalacja L3). Wymagana interwencja człowieka.")
+                elif retry_count >= 3:
+                    console.print("[bold red]POWÓD:[/bold red] Koder wyczerpał limit prób naprawy (Eskalacja L2). Wymagana interwencja człowieka.")
+                else:
+                    console.print("[bold green]POWÓD:[/bold green] Oczekuję na zatwierdzenie strategii lub zadanie zostało ukończone.")
+
                 try:
-                    summary = generate_status_summary(graph.get_state(config).values.get("wbs", []))
-                    print(summary)
+                    summary = generate_status_summary(state_values.get("wbs",[]))
+                    console.print(summary)
                 except Exception as e:
-                    print(f"\n[BŁĄD RAPORTU]: {e}")
+                    console.print(f"[bold red][BŁĄD RAPORTU]: {e}[/bold red]")
                 
-                user_input = input("Wpisz 'ZATWIERDZAM' lub podaj instrukcje/nowe dyrektywy: ").strip()
+                user_input = input("Wpisz 'ZATWIERDZAM', podaj instrukcje, lub wpisz 'ARCHITEKT: [wiadomość]' aby podjąć dyskusję: ").strip()
                 
-                if user_input.lower() in ['exit', 'quit']: sys.exit(0)
+                if user_input.lower() in['exit', 'quit']: sys.exit(0)
+                
+                # Przechwytywanie trybu Burzy Mózgów
+                if user_input.upper().startswith("ARCHITEKT:"):
+                    clean_input = user_input[10:].strip()
+                    console.print("[dim]Przekierowuję do Architekta (Tryb Burzy Mózgów)...[/dim]")
+                    # Aktualizujemy wiadomości ORAZ wymuszamy zmianę fazy na brainstorming
+                    graph.update_state(config, {
+                        "messages":[HumanMessage(content=clean_input)],
+                        "current_phase": "brainstorming"
+                    })
+                else:
+                    # Standardowa aktualizacja
+                    graph.update_state(config, {"messages": [HumanMessage(content=user_input)]})
                     
-                # Every user message (including APPROVALS) must be added to the state
-                # so the human_approval_node can interpret it and transition the project phase.
-                graph.update_state(config, {"messages": [HumanMessage(content=user_input)]})
                 events = graph.stream(None, config, stream_mode="updates")
             else:
                 user_input = input("\nUżytkownik: ").strip()
@@ -123,47 +152,81 @@ def main():
                 events = graph.stream(
                     {
                         "messages": [HumanMessage(content=user_input)],
-                        "workspace_path": workspace_path
+                        "workspace_path": str(workspace_path)
                     }, 
                     config, 
                     stream_mode="updates"
                 )
             
             for event in events:
-                for node_name, node_state in event.items():
-                    print(f" -> [Wykonano: {node_name}]")
-                    
-                    # Print messages from AI and Tools
-                    if node_state and "messages" in node_state and node_state["messages"]:
-                        last_msg = node_state["messages"][-1]
-                        
-                        # Check if the message is from AI (Text or Tool Calls)
-                        msg_type = getattr(last_msg, "type", None) or (last_msg.get("type") if isinstance(last_msg, dict) else None)
-                        
-                        if msg_type == "ai":
-                            content = getattr(last_msg, "content", "") or (last_msg.get("content") if isinstance(last_msg, dict) else "")
-                            if content:
-                                print(f"\n[AI {node_name.upper()}]: {content}\n")
+                try:
+                    for node_name, node_state in event.items():
+                        # Skip if node_state is not a dictionary (e.g. metadata or router tuples)
+                        if not isinstance(node_state, dict):
+                            continue
                             
-                            tool_calls = getattr(last_msg, "tool_calls", []) or (last_msg.get("tool_calls") if isinstance(last_msg, dict) else [])
-                            if tool_calls:
-                                for tc in tool_calls:
-                                    tc_name = tc.get("name") if isinstance(tc, dict) else getattr(tc, "name", "")
-                                    tc_args = tc.get("args") if isinstance(tc, dict) else getattr(tc, "args", {})
-                                    
-                                    # Sanitize logs - avoid printing the entire code block if it is too long
-                                    args_str = json.dumps(tc_args, indent=2)
-                                    if len(args_str) > 500:
-                                        # Extract only key information (e.g., file path)
-                                        path = tc_args.get("path") or tc_args.get("command") or "..."
-                                        args_str = f'{{ "path": "{path}", "content": "... (truncated for readability)" }}'
-                                        
-                                    print(f" -> [INTENCJA]: {tc_name}({args_str})")
+                        messages = node_state.get("messages", [])
+                        if not messages: continue
+                        last_msg = messages[-1]
                         
-                        # Check if the message is a Tool Result
-                        elif msg_type == "tool":
-                            content = getattr(last_msg, "content", "") or (last_msg.get("content") if isinstance(last_msg, dict) else "")
-                            print(f" -> [WYNIK]: {content}\n")
+                        # Format KODER (AI + Tools)
+                        if node_name == "coder" and isinstance(last_msg, AIMessage):
+                            # Extract text safely
+                            raw_content = last_msg.content
+                            if isinstance(raw_content, list):
+                                # Gemini sometimes returns a list of dicts for content
+                                raw_content = "\n".join([item.get("text", "") for item in raw_content if isinstance(item, dict) and "text" in item])
+                            
+                            if last_msg.tool_calls:
+                                for tc in last_msg.tool_calls:
+                                    t_name = tc.get("name")
+                                    t_args = tc.get("args", {})
+                                    if t_name == "edit_file":
+                                        target = t_args.get("path", "unknown")
+                                        console.print(f"[bold cyan]🛠️  [Coder][/bold cyan] Edytuje: [yellow]{target}[/yellow]")
+                                    elif t_name == "execute_subprocess":
+                                        cmd = t_args.get("command", "")
+                                        console.print(f"[bold magenta]⚡ [Coder][/bold magenta] Uruchamia: [yellow]{cmd}[/yellow]")
+                                    elif t_name == "start_background_server":
+                                        p = t_args.get("port", "...")
+                                        console.print(f"[bold blue]📡 [Coder][/bold blue] Startuje serwer na porcie: [yellow]{p}[/yellow]")
+                                    elif t_name == "finish_task":
+                                        console.print(f"[bold green]🏁 [Coder][/bold green] KOŃCZY ZADANIE.")
+                                    else:
+                                        console.print(f"[bold cyan]⚙️  [Coder][/bold cyan] Narzędzie: [yellow]{t_name}[/yellow]")
+                            elif raw_content:
+                                console.print(Panel(raw_content, title="[bold cyan]Coder[/bold cyan]", border_style="cyan"))
+                        
+                        # Format TESTER (Tool Results)
+                        elif node_name == "tester" and isinstance(last_msg, ToolMessage):
+                            cnt = str(last_msg.content)
+                            if "Successfully" in cnt or "Exit code: 0" in cnt:
+                                console.print(f"[bold green]✅ [Tester][/bold green] Sukces.")
+                            else:
+                                # Show error snippet
+                                err = cnt[:200] + "..." if len(cnt) > 200 else cnt
+                                console.print(f"[bold red]❌ [Tester][/bold red] Błąd: {err}")
+                        
+                        # Format ARCHITEKTA
+                        elif node_name == "architect" and isinstance(last_msg, AIMessage):
+                            raw_content = last_msg.content
+                            if isinstance(raw_content, list):
+                                raw_content = "\n".join([item.get("text", "") for item in raw_content if isinstance(item, dict) and "text" in item])
+                            if raw_content:
+                                md = Markdown(raw_content)
+                                console.print(Panel(md, title="[bold blue]Architect[/bold blue]", border_style="blue"))
+                        
+                        # Format ROUTERA (optional, simple log)
+                        elif node_name == "router":
+                            pass 
+                        
+                        # Fallback for other nodes
+                        else:
+                            if hasattr(last_msg, "content") and last_msg.content:
+                                console.print(f"[dim] -> [Wykonano: {node_name}][/dim]")
+                except Exception as e:
+                    console.print(f"[bold red]INTERNAL CLI ERROR:[/bold red] {str(e)}")
+                    continue
 
 if __name__ == "__main__":
     main()

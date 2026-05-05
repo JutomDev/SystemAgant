@@ -11,6 +11,13 @@ def router_condition(state: AgentState) -> Literal["architect", "coder", "human_
 
 def tester_condition(state: AgentState) -> Literal["coder", "human_approval", "architect", "router"]:
     messages = state.get("messages", [])
+    
+    # HARD SAFETY LIMIT: If the agent has been looping for more than 20 iterations
+    # on a single task, force escalation to human regardless of state.
+    current_iteration = state.get("current_iteration", 0)
+    if current_iteration > 20:
+        return "human_approval"
+    
     if not messages:
         return "coder"
 
