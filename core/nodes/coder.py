@@ -1,6 +1,6 @@
 import platform
 from pathlib import Path
-from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, ToolMessage, SystemMessage
 from core.state import AgentState
 from core.tools.fs_tools import read_file, edit_file
 from core.tools.sys_tools import execute_subprocess, finish_task, start_background_server, kill_process_on_port
