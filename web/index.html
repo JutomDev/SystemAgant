@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SystemAgant // Autonomous Multi-Agent Chat & Live Preview</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- Rack Header & Hardware Status -->
+  <header>
+    <div class="rack-title">
+      <span class="title-tag">[SYSTEM_AGANT]</span>
+      <span class="title-text">AUTONOMOUS SOFTWARE HOUSE</span>
+      <span class="title-meta">// LIVE MULTI-AGENT CHAT & WORKSPACE PREVIEW</span>
+    </div>
+
+    <div class="led-rack">
+      <div class="led-unit" id="led-architect">
+        <div class="led-dot"></div>
+        <span class="led-label">ARCHITECT</span>
+      </div>
+      <div class="led-unit" id="led-coder">
+        <div class="led-dot"></div>
+        <span class="led-label">CODER</span>
+      </div>
+      <div class="led-unit" id="led-tester">
+        <div class="led-dot"></div>
+        <span class="led-label">TESTER</span>
+      </div>
+      <div class="led-unit" id="led-router">
+        <div class="led-dot"></div>
+        <span class="led-label">ROUTER</span>
+      </div>
+      <div class="led-unit active" id="led-mode">
+        <div class="led-dot" style="background-color: var(--accent-green); box-shadow: 0 0 6px var(--accent-green);"></div>
+        <span class="led-label" id="mode-label">GEMINI FLASH FREE</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Split Dashboard -->
+  <main class="dashboard-split">
+    
+    <!-- LEFT COLUMN: INTERACTIVE CHAT & HITL CONTROLS -->
+    <section class="panel chat-panel" id="panel-chat">
+      <div class="panel-header">
+        <span class="panel-title">// MULTI-AGENT CONVERSATION RACK</span>
+        <span class="title-meta" id="chat-status-meta">STATUS: IDLE</span>
+      </div>
+
+      <!-- Scrollable Message Stream -->
+      <div class="panel-body chat-messages-container" id="chat-messages">
+        <!-- Rendered via JavaScript -->
+      </div>
+
+      <!-- HITL Action Bar (Appears when approval required) -->
+      <div class="hitl-banner hidden" id="hitl-banner">
+        <div class="hitl-title">[!] HUMAN-IN-THE-LOOP APPROVAL REQUIRED (HITL GATE)</div>
+        <div class="hitl-desc">Architect synthesized the Work Breakdown Structure. Do you approve proceeding with code generation?</div>
+        <div class="hitl-actions">
+          <button class="tactile-btn primary" id="btn-hitl-approve">[+ APPROVE STRATEGY ]</button>
+          <button class="tactile-btn" id="btn-hitl-ask">[? ASK ARCHITECT ]</button>
+        </div>
+      </div>
+
+      <!-- Input Deck -->
+      <div class="chat-input-deck">
+        <div class="prompt-chips">
+          <span style="color: var(--text-dim); font-size: 10px;">EXAMPLE PROMPTS:</span>
+          <button class="chip-btn" id="chip-kwiaciarnia">[EX-1] Botanical Web Shop</button>
+          <button class="chip-btn" id="chip-game">[EX-2] Canvas Breakout</button>
+          <button class="chip-btn" id="chip-cli">[EX-3] Python Log CLI</button>
+        </div>
+        <form id="chat-form" class="chat-form">
+          <textarea id="chat-input" placeholder="Enter custom project requirements or instructions for the agent team..." rows="2"></textarea>
+          <button type="submit" class="tactile-btn primary" id="btn-chat-send">[ TRANSMIT ]</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- RIGHT COLUMN: MULTI-AGENT GRAPH + WORKSPACE PREVIEW -->
+    <section class="panel preview-panel" id="panel-preview">
+      
+      <!-- Top: Multi-Agent Wire Graph -->
+      <div class="wire-rack-container">
+        <div class="wire-header">
+          <span class="panel-title">// LANGGRAPH MULTI-AGENT STATE MACHINE</span>
+          <span class="title-meta" id="graph-cycle-meta">CYCLE: 0</span>
+        </div>
+        <div class="agent-wire-rack">
+          <div class="agent-node" id="node-router">
+            <div class="node-role">// RULE ENGINE</div>
+            <div class="node-name">ROUTER</div>
+            <div class="node-status" id="status-router">STANDBY</div>
+          </div>
+          <div class="wire-connector"></div>
+          <div class="agent-node" id="node-architect">
+            <div class="node-role">// STRATEGIST</div>
+            <div class="node-name">ARCHITECT</div>
+            <div class="node-status" id="status-architect">STANDBY</div>
+          </div>
+          <div class="wire-connector"></div>
+          <div class="agent-node" id="node-coder">
+            <div class="node-role">// CI/CD CODER</div>
+            <div class="node-name">CODER</div>
+            <div class="node-status" id="status-coder">STANDBY</div>
+          </div>
+          <div class="wire-connector"></div>
+          <div class="agent-node" id="node-tester">
+            <div class="node-role">// TOOL TESTER</div>
+            <div class="node-name">TESTER</div>
+            <div class="node-status" id="status-tester">STANDBY</div>
+          </div>
+          <div class="wire-connector"></div>
+          <div class="agent-node" id="node-human">
+            <div class="node-role">// HITL GATE</div>
+            <div class="node-name">HUMAN</div>
+            <div class="node-status" id="status-human">READY</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab Bar for Right Panel -->
+      <div class="preview-tabs">
+        <button class="tab-btn active" id="tab-live-preview">[ LIVE WORKSPACE PREVIEW ]</button>
+        <button class="tab-btn" id="tab-files">[ WORKSPACE FILES & CODE ]</button>
+        <button class="tab-btn" id="tab-wbs">[ TASK BREAKDOWN (WBS) ]</button>
+        <button class="tab-btn" id="tab-logs">[ TELEMETRY & LOGS ]</button>
+      </div>
+
+      <!-- Tab Content Area -->
+      <div class="tab-content" id="tab-content">
+        
+        <!-- VIEW 1: Live Iframe HTML Preview -->
+        <div class="tab-pane active" id="pane-preview">
+          <div class="preview-toolbar" style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span class="preview-url">// PAGE:</span>
+              <select id="preview-page-select" class="tactile-select" style="background: #14181f; color: var(--text-main); border: 1px solid var(--border-color); font-family: monospace; font-size: 11px; padding: 3px 8px; border-radius: 2px;">
+                <option value="index.html">index.html (Home)</option>
+              </select>
+            </div>
+            <button class="tactile-btn" id="btn-refresh-preview" style="padding: 2px 8px; font-size: 10px;">[ REFRESH ]</button>
+          </div>
+          <iframe id="preview-frame" src="/api/workspace/preview" title="Live Preview"></iframe>
+        </div>
+
+        <!-- VIEW 2: Workspace File Explorer & Code Viewer -->
+        <div class="tab-pane" id="pane-files">
+          <div class="files-split">
+            <div class="file-tree" id="file-tree">
+              <!-- File items rendered by JS -->
+            </div>
+            <div class="code-view">
+              <div class="code-header" id="code-filename">// Select a file from the list on the left</div>
+              <pre><code id="code-content">// No active file selected</code></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- VIEW 3: WBS Task List -->
+        <div class="tab-pane" id="pane-wbs">
+          <div id="wbs-container" style="padding: 10px;">
+            <!-- Rendered by JS -->
+          </div>
+        </div>
+
+        <!-- VIEW 4: Telemetry Logs -->
+        <div class="tab-pane" id="pane-logs">
+          <div class="terminal-body" id="terminal-stream">
+            <!-- Logs rendered by JS -->
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Progress Meter (Bottom of right column) -->
+      <div class="meter-rack">
+        <span class="panel-title" style="min-width: 80px;">WBS PROGRESS</span>
+        <div class="meter-scale" id="progress-meter">
+          <div class="meter-segment"></div>
+          <div class="meter-segment"></div>
+          <div class="meter-segment"></div>
+          <div class="meter-segment"></div>
+          <div class="meter-segment"></div>
+          <div class="meter-segment"></div>
+          <div class="meter-segment"></div>
+          <div class="meter-segment"></div>
+          <div class="meter-segment"></div>
+          <div class="meter-segment"></div>
+        </div>
+        <span class="meter-val" id="progress-val">0%</span>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Hardware Deck Controls (Footer) -->
+  <footer>
+    <div class="control-rack">
+      <button class="tactile-btn danger" id="btn-reset-session">[x] RESET SESSION & WORKSPACE</button>
+      <button class="tactile-btn" id="btn-api-key" style="margin-left: 10px;">[ KEY: CONFIGURE ]</button>
+    </div>
+
+    <div class="status-callout">
+      WORKSPACE: <span id="workspace-badge" style="color: var(--accent-amber); font-weight: 700;">workspaces/kwiaciarnia_mex</span> |
+      ENGINE: <span id="engine-badge" style="color: var(--accent-green); font-weight: 700;">GEMINI FLASH LITE (LIVE FREE TIER)</span>
+    </div>
+  </footer>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,28 +1,121 @@
+# ==============================================================================
+# GitIgnore — AI Software House & Universal Project Engineering Protocol
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. Agent Runtime, Workspace & Temporary Execution Artifacts
+# ------------------------------------------------------------------------------
+# Agent-generated workspaces and archives
+workspaces/
+*.zip
+*.tar.gz
+*.rar
+
+# SQLite Checkpoints, Databases & WAL files
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+state.db*
+
+# Scratchpads, debug scripts & benchmarks
+scratch/
+.benchmarks/
+plans/runs/
+plans/temp/
+
+# Agent transcripts, caches & internal session files
+brain/
+.system_generated/
+.antigravity/
+*.agent.json
+agent_*.json
+
+# Personal agent rules, prompts and internal workspace instructions
+AGENTS*.md
+.agents/
+
+# ------------------------------------------------------------------------------
+# 2. Logs & Telemetry
+# ------------------------------------------------------------------------------
+*.log
+*.jsonl
+server_*.log
+system.log
+agent_*.log
+
+# ------------------------------------------------------------------------------
+# 3. Python Artifacts, Virtual Environments & Quality Tooling Caches
+# ------------------------------------------------------------------------------
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
+*.so
 
-# Environments
-.env
+# Virtual Environments
 .venv/
 venv/
 env/
+ENV/
+.python-version
 
-# Logs and databases
-*.log
-*.sqlite3
-*.db
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+*.egg
 
-# OS generated files
+# Testing & Linting caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyright/
+.coverage
+htmlcov/
+.tox/
+
+# ------------------------------------------------------------------------------
+# 4. Frontend & Node Ecosystem (Vite / Next.js / React)
+# ------------------------------------------------------------------------------
+node_modules/
+.next/
+out/
+.nuxt/
+.output/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ------------------------------------------------------------------------------
+# 5. Secrets, Credentials & Local Configuration
+# ------------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+credentials.json
+token.json
+
+# ------------------------------------------------------------------------------
+# 6. Operating System & IDE Files
+# ------------------------------------------------------------------------------
 .DS_Store
 Thumbs.db
+ehthumbs.db
+desktop.ini
 
-# IDEs
+# Editors
 .idea/
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
 *.swp
 *.swo
-
-# Project specific
-workspaces/
+*~

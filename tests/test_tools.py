@@ -17,7 +17,7 @@ def test_edit_file_format():
     try:
         # Błędny format (brak separatora ====)
         instructions = "<<<< SEARCH\nA\n>>>> REPLACE\nX"
-        result = edit_file.invoke({"path": test_path, "diff_instructions": instructions})
+        result = edit_file.invoke({"path": test_path, "diff_instructions": instructions, "workspace_path": "."})
         assert "Error: Invalid diff_instructions format" in result
     finally:
         if os.path.exists(test_path):
@@ -32,7 +32,7 @@ def test_edit_file_success():
         
     try:
         instructions = "<<<< SEARCH\nLine 2\n====\nLine 2 Modified\n>>>> REPLACE"
-        result = edit_file.invoke({"path": test_path, "diff_instructions": instructions})
+        result = edit_file.invoke({"path": test_path, "diff_instructions": instructions, "workspace_path": "."})
         assert "Successfully edited" in result
         
         with open(test_path, "r") as f:

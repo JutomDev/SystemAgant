@@ -14,7 +14,8 @@ def router_node(state: AgentState) -> dict:
         # tester.py might append 'internal_fs_operation' AFTER 'finish_task', so we check the last 5 logs
         recent_logs = logs[-5:]
         task_finished = any(
-            isinstance(l, dict) and l.get("command") == "finish_task" and l.get("exit_code", 1) == 0 
+            (isinstance(l, dict) and l.get("command") == "finish_task" and l.get("exit_code", 1) == 0 and l.get("task_id") == current_task_id) or
+            (not isinstance(l, dict) and getattr(l, "command", "") == "finish_task" and getattr(l, "exit_code", 1) == 0 and getattr(l, "task_id", "") == current_task_id)
             for l in recent_logs
         )
         if task_finished:
@@ -28,7 +29,7 @@ def router_node(state: AgentState) -> dict:
                             task["status"] = "completed"
                         else:
                             task.status = "completed"
-                        print(f"\n[bold green][Router] ✅ ZADANIE '{current_task_id}' ZAKOŃCZONE![/bold green]", flush=True)
+                        print(f"\n[Router] [+] Task '{current_task_id}' completed successfully.", flush=True)
                         break
     
     # 1. Scan WBS for incomplete tasks and select the active task

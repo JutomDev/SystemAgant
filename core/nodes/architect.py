@@ -1,9 +1,9 @@
 import os
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
-from langchain_google_vertexai import ChatVertexAI
 from core.state import AgentState
 from core.models import ArchitectOutput
 from core.memory import filter_architect_messages
+from core.llm_factory import get_architect_llms
 
 def architect_node(state: AgentState) -> dict:
     """
@@ -18,27 +18,10 @@ def architect_node(state: AgentState) -> dict:
     
     principles = state.get("guiding_principles", {"core_constitution": [], "project_directives": []})
 
-    # 1. Consultant — for problem-solving and iteration
-    consultant_llm = ChatVertexAI(
-        model_name="gemini-3.1-pro-preview", 
-        location="global", 
-        project="nifty-saga-493918-c8",
-        temperature=0.6,
-        max_output_tokens=8192,
-        model_kwargs={"thinking_level": "high"}
-    )
-    
-    # 2. Planner — for WBS creation and Brainstorming phase
-    planner_llm = ChatVertexAI(
-        model_name="gemini-3.1-pro-preview", 
-        location="global", 
-        project="nifty-saga-493918-c8",
-        temperature=0.4,
-        top_p=0.95,
-        presence_penalty=0.1,
-        max_output_tokens=8192,
-        model_kwargs={"thinking_level": "high"}
-    )
+    # Factory decouples execution mode (simulation vs live api)
+    models = get_architect_llms()
+    consultant_llm = models["consultant"]
+    planner_llm = models["planner"]
 
     if current_phase == "execution" and consultation_retries < 3:
         # ====== CONSULTATION MODE (DEBUGGING) ======
@@ -81,7 +64,9 @@ The project folder ({workspace_path}) currently contains the following files: {f
 The Coder has access to these files via read_file and edit_file tools.
 NEVER ask the user to paste code that is already on disk. Instead, plan a task for the Coder to analyze those files.
 </context>
-<instructions>Analyze user requirements and create/update the WBS plan. Generate a structured JSON object with a 'response' field (your text response to the user) and an optional 'wbs' field (list of Epics with tasks).</instructions>"""
+<instructions>Analyze user requirements and create/update the WBS plan. 
+Reply in the user's language explaining the technical strategy, but formulate all task IDs, file targets, and code references in English.
+Generate a structured JSON object with a 'response' field (your text response to the user) and an optional 'wbs' field (list of Epics with tasks).</instructions>"""
         
         structured_planner = planner_llm.with_structured_output(ArchitectOutput)
         
@@ -135,7 +120,7 @@ NEVER ask the user to paste code that is already on disk. Instead, plan a task f
                         task_desc = getattr(task, 'description', 'Task')
                     plan_text += f"   - {task_desc}\n"
                     
-            plan_text += "\nJeśli akceptujesz ten plan, wpisz 'ZATWIERDZAM' (lub jeśli graf zapyta o zgodę, potwierdź), albo podaj swoje poprawki."
+            plan_text += "\nIf you approve this plan, type 'APPROVE' (or 'ZATWIERDZAM'), or provide your adjustments."
 
         # Convert Pydantic objects to dicts before saving to state
         # Prevents serialization errors in SqliteSaver

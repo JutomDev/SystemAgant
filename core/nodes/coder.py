@@ -1,9 +1,9 @@
 import platform
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
-from langchain_google_vertexai import ChatVertexAI
 from core.state import AgentState
 from core.tools.fs_tools import read_file, edit_file
 from core.tools.sys_tools import execute_subprocess, finish_task, start_background_server, kill_process_on_port
+from core.llm_factory import get_coder_llm
 
 def sanitize_history(messages):
     """
@@ -81,23 +81,15 @@ MODE 3: HUMAN CONVERSATION
 - NEVER hallucinate tools.
 - OVERWRITE MODE: If you need to REPLACE THE ENTIRE CONTENT of an existing file, call `edit_file` with `overwrite=True`. The `diff_instructions` will become the new file content directly. Use this instead of trying to match SEARCH blocks for full rewrites.
 - PREFER SURGICAL EDITS: For small changes to existing files, use SEARCH/REPLACE blocks in `edit_file` (overwrite=False, the default).
-- ON WINDOWS: Use `dir` to list, `del` to delete. NEVER USE `ls`.
-- PYTHON ON WINDOWS: Use `.\.venv\Scripts\python.exe` — the system will auto-resolve the absolute path.
-- BAN ON `python -c` FOR ASYNC: Do NOT use `python -c` to test async or complex code. Create a temporary test file and run it instead.
-- TESTING METHODOLOGY: To validate frontend code, use `npm run build` in the frontend directory. To validate backend, use `.\.venv\Scripts\python.exe -c "import backend.app.main"` or run pytest. NEVER treat the raw content of a .tsx/.py file as an error.
 - ANTI-LOOP RULE (MANDATORY): If you have called `dir` or `read_file` more than 2 times in a row without calling `edit_file` or `execute_subprocess`, you are STUCK IN A LOOP. You MUST immediately use `edit_file` with `overwrite=True` to write the file, or call `finish_task` to end the task. NEVER call read_file more than twice consecutively.
+- IMAGE ASSETS: When generating HTML pages requiring photos, use valid Unsplash image URLs (e.g. https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=800&q=80) with semantic alt attributes.
 </critical_rules>"""
 
-    llm = ChatVertexAI(
-        model_name="gemini-3-flash-preview",
-        location="global",
-        project="nifty-saga-493918-c8",
-        temperature=0.1,
-        top_p=0.90,
-        frequency_penalty=0.2,
-        max_output_tokens=16384,
-        model_kwargs={"thinking_level": "high"}
-    )
+    current_task_id = state.get("current_task_id")
+    if current_task_id:
+        sys_instruct += f"\n<active_task>ACTIVE TASK TO IMPLEMENT: {current_task_id}</active_task>"
+
+    llm = get_coder_llm()
     tools = [read_file, edit_file, execute_subprocess, start_background_server, kill_process_on_port, finish_task]
     llm_with_tools = llm.bind_tools(tools, tool_choice="auto", parallel_tool_calls=False)
     
