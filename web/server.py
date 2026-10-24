@@ -29,7 +29,7 @@ from core.config import AppConfig, get_config
 from core.llm_factory import get_architect_llms, get_coder_llm
 from core.models import ArchitectOutput, AtomicTask, Epic
 from core.tools.asset_tools import validate_and_repair_html_images
-from core.repo_map import generate_repo_map
+from core.repo_map import generate_repo_map, generate_task_scoped_repo_map
 
 WEB_DIR = Path(__file__).resolve().parent
 
@@ -48,24 +48,33 @@ class ChatRequest(BaseModel):
 
 class ResetRequest(BaseModel):
     project_name: Optional[str] = None
+    purge_files: bool = True
+
+
+class WorkspaceActionRequest(BaseModel):
+    project_name: str
 
 
 class DashboardSession:
     def __init__(self, session_key: Optional[str] = None, project_name: str = "web_project"):
         self.config = get_config()
         self.session_key = session_key or self.config.gemini_api_key or os.getenv("GEMINI_API_KEY")
-        self.set_project(project_name)
-        self.reset_state()
+        self.set_project(project_name, load_existing=True)
 
-    def set_project(self, name: str) -> None:
+    def set_project(self, name: str, load_existing: bool = True) -> None:
         clean = re.sub(r"[^a-zA-Z0-9_\-]", "_", name.strip()).strip("_") or "web_project"
         self.project_name = clean
         self.workspace_path = self.config.workspaces_dir / clean
         self.workspace_path.mkdir(parents=True, exist_ok=True)
+        if load_existing:
+            loaded = self.load_state_from_disk()
+            if not loaded:
+                self.init_default_state(purge_files=False)
+        else:
+            self.init_default_state(purge_files=False)
 
-    def reset_state(self) -> None:
-        # Purge existing files on reset to guarantee clean build slate
-        if self.workspace_path.exists():
+    def init_default_state(self, purge_files: bool = False) -> None:
+        if purge_files and self.workspace_path.exists():
             for p in list(self.workspace_path.rglob("*")):
                 if p.is_file() and not p.name.startswith(".git"):
                     try:
@@ -82,7 +91,6 @@ class DashboardSession:
         self.current_task_id: Optional[str] = None
         self.awaiting_hitl = False
 
-        # Initial system welcome message in English
         self.chat_messages.append(
             {
                 "id": "msg_0",
@@ -97,6 +105,98 @@ class DashboardSession:
                 "type": "agent",
             }
         )
+
+    def save_state_to_disk(self) -> None:
+        try:
+            sg_dir = self.workspace_path / ".systemagant"
+            sg_dir.mkdir(parents=True, exist_ok=True)
+            s_file = sg_dir / "session.json"
+            payload = {
+                "project_name": self.project_name,
+                "active_node": self.active_node,
+                "current_phase": self.current_phase,
+                "iteration": self.iteration,
+                "awaiting_hitl": self.awaiting_hitl,
+                "current_task_id": self.current_task_id,
+                "chat_messages": self.chat_messages,
+                "wbs": self.wbs,
+                "logs": self.logs[-50:],
+            }
+            s_file.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+        except Exception as e:
+            logger.error("Failed to save workspace state: %s", e)
+
+    def load_state_from_disk(self) -> bool:
+        s_file = self.workspace_path / ".systemagant" / "session.json"
+        if s_file.is_file():
+            try:
+                data = json.loads(s_file.read_text(encoding="utf-8"))
+                self.project_name = data.get("project_name", self.project_name)
+                self.active_node = data.get("active_node", "router")
+                self.current_phase = data.get("current_phase", "completed")
+                self.iteration = data.get("iteration", 1)
+                self.awaiting_hitl = data.get("awaiting_hitl", False)
+                self.current_task_id = data.get("current_task_id")
+                self.chat_messages = data.get("chat_messages", [])
+                self.wbs = data.get("wbs", [])
+                self.logs = data.get("logs", [])
+                return True
+            except Exception as e:
+                logger.error("Failed to load workspace session: %s", e)
+
+        # Hydrate from existing workspace files if session.json is absent
+        existing_files = [
+            p for p in self.workspace_path.rglob("*")
+            if p.is_file() and not p.name.startswith(".") and ".systemagant" not in p.parts
+        ]
+        if existing_files:
+            self.active_node = "router"
+            self.current_phase = "completed"
+            self.iteration = 1
+            self.awaiting_hitl = False
+            self.current_task_id = None
+            self.wbs = []
+            self.logs = [{
+                "node": "router",
+                "content": f"Hydrated workspace '{self.project_name}' with {len(existing_files)} existing files.",
+                "timestamp": 1,
+            }]
+            self.chat_messages = [
+                {
+                    "id": "msg_0",
+                    "sender": "architect",
+                    "title": "Architect",
+                    "text": (
+                        f"Resumed active workspace: 'workspaces/{self.project_name}'. "
+                        f"Found {len(existing_files)} existing files. "
+                        "Inspect the live preview or files, or enter new requirements to extend this project."
+                    ),
+                    "type": "agent",
+                }
+            ]
+            self.save_state_to_disk()
+            return True
+
+        return False
+
+    def load_project(self, project_name: str) -> Dict[str, Any]:
+        clean = re.sub(r"[^a-zA-Z0-9_\-]", "_", project_name.strip()).strip("_") or "web_project"
+        self.project_name = clean
+        self.workspace_path = self.config.workspaces_dir / clean
+        self.workspace_path.mkdir(parents=True, exist_ok=True)
+        if not self.load_state_from_disk():
+            self.init_default_state(purge_files=False)
+            self.save_state_to_disk()
+        return self.get_full_state()
+
+    def create_new_project(self, project_name: str) -> Dict[str, Any]:
+        clean = re.sub(r"[^a-zA-Z0-9_\-]", "_", project_name.strip()).strip("_") or "web_project"
+        self.project_name = clean
+        self.workspace_path = self.config.workspaces_dir / clean
+        self.workspace_path.mkdir(parents=True, exist_ok=True)
+        self.init_default_state(purge_files=True)
+        self.save_state_to_disk()
+        return self.get_full_state()
 
 
     def set_api_key(self, key: str) -> None:
@@ -284,7 +384,74 @@ class DashboardSession:
                         "timestamp": self.iteration,
                     }
                 )
+        # Phase 3: Post-Completion Continuous Development & Iterative Features
+        elif self.current_phase == "completed":
+            self.active_node = "architect"
+            self.iteration += 1
+            repo_map = generate_task_scoped_repo_map(
+                self.workspace_path,
+                task_description=user_clean,
+                max_files=8,
+            )
 
+            if cfg.mode == "simulation":
+                new_epic = {
+                    "epic_id": f"EPIC_{len(self.wbs) + 1}",
+                    "title": f"Follow-Up: {user_clean[:30]}",
+                    "description": user_clean,
+                    "tasks": [
+                        {
+                            "task_id": f"TASK_{len(self.wbs) + 1}_1",
+                            "description": f"Implement incremental change: {user_clean}",
+                            "target_files": ["index.html"],
+                            "status": "pending",
+                        }
+                    ],
+                }
+                self.wbs.append(new_epic)
+                reply_text = f"Analyzed follow-up requirement for existing codebase: '{user_clean}'. Planned incremental task."
+            else:
+                models = get_architect_llms(cfg)
+                structured_planner = models["planner"].with_structured_output(ArchitectOutput)
+                incremental_prompt = (
+                    f"Existing Workspace Symbol Map:\n{repo_map}\n\n"
+                    f"Previously Completed WBS:\n{json.dumps(self.wbs)}\n\n"
+                    f"User New Feature Request / Refinement: {user_clean}\n\n"
+                    "Instructions: Synthesize an INCREMENTAL Work Breakdown Structure for this existing project. "
+                    "You may define modifications to existing files or create new files. "
+                    "Ensure new tasks are marked as pending. Formulate task IDs and target files in English. "
+                    "Reply explaining what incremental changes will be made."
+                )
+                try:
+                    structured_res = structured_planner.invoke(incremental_prompt)
+                    new_epics = [e.model_dump() for e in structured_res.wbs]
+                    self.wbs.extend(new_epics)
+                    reply_text = structured_res.response
+                except Exception as e:
+                    logger.error("Architect incremental planning error: %s", e)
+                    reply_text = f"Follow-up requirement received: '{user_clean}'. Architecture ready for your approval."
+
+            self.current_phase = "approval"
+            self.awaiting_hitl = True
+            self.chat_messages.append(
+                {
+                    "id": f"msg_{len(self.chat_messages)}",
+                    "sender": "architect",
+                    "title": "Architect",
+                    "text": f"{reply_text}\n\nIncremental plan generated. Click [+ APPROVE STRATEGY] to implement.",
+                    "has_wbs": True,
+                    "type": "agent",
+                }
+            )
+            self.logs.append(
+                {
+                    "node": "architect",
+                    "content": f"Incremental WBS synthesized for follow-up prompt: '{user_clean[:50]}'.",
+                    "timestamp": self.iteration,
+                }
+            )
+
+        self.save_state_to_disk()
         return self.get_full_state()
 
     def run_execution_cycle(self) -> None:
@@ -295,9 +462,10 @@ class DashboardSession:
             for t in epic.get("tasks", []):
                 all_tasks.append(t)
 
+        pending_tasks = [t for t in all_tasks if t.get("status") != "completed"]
         coder_llm = get_coder_llm(cfg)
 
-        for task in all_tasks:
+        for task in pending_tasks:
             tid = task["task_id"]
             desc = task["description"]
             target_files = task.get("target_files", ["index.html"])
@@ -314,13 +482,18 @@ class DashboardSession:
                 # Fast mock generation
                 content = f"<!DOCTYPE html><html><head><title>{tid}</title></head><body><h1>{desc}</h1></body></html>"
             else:
-                # Real LLM Generation
-                repo_map = generate_repo_map(self.workspace_path)
+                # Real LLM Generation with Task-Scoped Repo Map
+                repo_map = generate_task_scoped_repo_map(
+                    self.workspace_path,
+                    target_file=fname,
+                    task_description=desc,
+                    max_files=8,
+                )
                 repo_context = f"\nExisting Repository Symbol Map:\n{repo_map}\n" if repo_map else ""
                 if repo_map:
                     self.logs.append({
                         "node": "coder",
-                        "content": f"Repository Map: Injected cross-file symbols for {fname} ({len(repo_map.splitlines())} lines).",
+                        "content": f"Repository Map: Injected scoped symbols for {fname}.",
                         "timestamp": self.iteration,
                     })
                 coder_prompt = (
@@ -469,14 +642,20 @@ class DashboardSession:
             }
         )
 
-    def reset(self, project_name: Optional[str] = None) -> None:
+    def reset(self, project_name: Optional[str] = None, purge_files: bool = True) -> None:
         saved_mode = self.config.mode
         saved_key = self.session_key
         target_project = project_name or self.project_name
-        self.__init__(session_key=saved_key, project_name=target_project)
+        clean = re.sub(r"[^a-zA-Z0-9_\-]", "_", target_project.strip()).strip("_") or "web_project"
+        self.project_name = clean
+        self.workspace_path = self.config.workspaces_dir / clean
+        self.workspace_path.mkdir(parents=True, exist_ok=True)
+        self.init_default_state(purge_files=purge_files)
         self.config.mode = saved_mode
+        self.session_key = saved_key
         if saved_mode == "simulation":
             self.session_key = None
+        self.save_state_to_disk()
 
     def get_full_state(self) -> Dict[str, Any]:
         total_tasks = 0
@@ -489,11 +668,11 @@ class DashboardSession:
 
         progress = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
 
-        # Workspace file list (recursive relative paths)
+        # Workspace file list (recursive relative paths, excluding internal state)
         files = []
         if self.workspace_path.exists():
             for p in self.workspace_path.rglob("*"):
-                if p.is_file() and not p.name.endswith(".db") and not p.name.endswith(".log"):
+                if p.is_file() and not p.name.endswith(".db") and not p.name.endswith(".log") and ".systemagant" not in p.parts:
                     rel_name = str(p.relative_to(self.workspace_path)).replace("\\", "/")
                     files.append({"name": rel_name, "size": p.stat().st_size})
 
@@ -543,8 +722,52 @@ def post_chat(req: ChatRequest, x_gemini_key: Optional[str] = Header(None)) -> J
 @app.post("/api/reset")
 def post_reset(req: Optional[ResetRequest] = None) -> JSONResponse:
     pname = req.project_name if req else None
-    _session.reset(project_name=pname)
+    purge = req.purge_files if req is not None else True
+    _session.reset(project_name=pname, purge_files=purge)
     return JSONResponse(content=_session.get_full_state())
+
+
+@app.get("/api/workspaces")
+def list_workspaces() -> JSONResponse:
+    workspaces_dir = _session.config.workspaces_dir
+    result = []
+    if workspaces_dir.exists():
+        for d in sorted(workspaces_dir.iterdir()):
+            if d.is_dir() and not d.name.startswith("."):
+                files = [
+                    p.name for p in d.rglob("*")
+                    if p.is_file() and not p.name.startswith(".") and ".systemagant" not in p.parts
+                ]
+                has_session = (d / ".systemagant" / "session.json").is_file()
+                phase = "READY"
+                if has_session:
+                    try:
+                        s_data = json.loads((d / ".systemagant" / "session.json").read_text(encoding="utf-8"))
+                        phase = s_data.get("current_phase", "completed").upper()
+                    except Exception:
+                        pass
+                elif files:
+                    phase = "COMPLETED"
+                result.append({
+                    "name": d.name,
+                    "file_count": len(files),
+                    "has_session": has_session,
+                    "phase": phase,
+                    "is_active": (d.name == _session.project_name),
+                })
+    return JSONResponse(content={"workspaces": result, "active_workspace": _session.project_name})
+
+
+@app.post("/api/workspace/load")
+def post_load_workspace(req: WorkspaceActionRequest) -> JSONResponse:
+    state = _session.load_project(req.project_name)
+    return JSONResponse(content=state)
+
+
+@app.post("/api/workspace/new")
+def post_new_workspace(req: WorkspaceActionRequest) -> JSONResponse:
+    state = _session.create_new_project(req.project_name)
+    return JSONResponse(content=state)
 
 
 @app.get("/api/workspace/files")

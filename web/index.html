@@ -49,7 +49,11 @@
         <span class="panel-title">// CONVERSATION RACK</span>
         <div style="display: flex; align-items: center; gap: 6px;">
           <span style="color: var(--text-dim); font-size: 10px;">WORKSPACE:</span>
-          <input id="input-project-name" type="text" value="web_project" style="background:#14181f;color:var(--accent-amber);border:1px solid var(--border-color);font-family:monospace;font-size:11px;padding:2px 6px;width:120px;border-radius:2px;" title="Target folder inside workspaces/">
+          <select id="select-workspace" style="background:#14181f;color:var(--accent-amber);border:1px solid var(--border-color);font-family:monospace;font-size:11px;padding:2px 6px;border-radius:2px;max-width:180px;" title="Switch between saved workspaces">
+            <option value="web_project">web_project</option>
+          </select>
+          <button id="btn-new-workspace" class="tactile-btn" style="padding:2px 6px;font-size:10px;background:#1e242c;border:1px solid var(--border-color);color:var(--text-main);cursor:pointer;" title="Create new clean workspace">[+ NEW]</button>
+          <input id="input-project-name" type="hidden" value="web_project">
         </div>
       </div>
 

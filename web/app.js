@@ -20,6 +20,8 @@ const dom = {
   chipCli: document.getElementById("chip-cli"),
   btnApiKey: document.getElementById("btn-api-key"),
   inputProjectName: document.getElementById("input-project-name"),
+  selectWorkspace: document.getElementById("select-workspace"),
+  btnNewWorkspace: document.getElementById("btn-new-workspace"),
   workspaceBadge: document.getElementById("workspace-badge"),
 
   // LEDs
@@ -160,8 +162,19 @@ function renderHeaderAndGraph(data) {
   if (data.workspace_dir && dom.workspaceBadge) {
     dom.workspaceBadge.textContent = data.workspace_dir;
   }
-  if (data.project_name && dom.inputProjectName && document.activeElement !== dom.inputProjectName) {
-    dom.inputProjectName.value = data.project_name;
+  if (data.project_name) {
+    if (dom.inputProjectName) dom.inputProjectName.value = data.project_name;
+    if (dom.selectWorkspace && dom.selectWorkspace.value !== data.project_name) {
+      dom.selectWorkspace.value = data.project_name;
+    }
+  }
+
+  if (dom.chatInput) {
+    if (data.current_phase === "COMPLETED") {
+      dom.chatInput.placeholder = "Project complete. Enter follow-up requirements to extend or refine...";
+    } else {
+      dom.chatInput.placeholder = "Enter instructions or architectural requirements...";
+    }
   }
 }
 
@@ -461,5 +474,73 @@ function escapeHtml(text) {
     .replace(/'/g, "&#039;");
 }
 
+// Workspace Management: Switch, Resume and Create
+async function loadWorkspacesList() {
+  if (!dom.selectWorkspace) return;
+  try {
+    const res = await fetch("/api/workspaces");
+    if (!res.ok) return;
+    const data = await res.json();
+    dom.selectWorkspace.innerHTML = "";
+    (data.workspaces || []).forEach(ws => {
+      const opt = document.createElement("option");
+      opt.value = ws.name;
+      opt.textContent = `${ws.name} (${ws.file_count} files [${ws.phase}])`;
+      if (ws.name === data.active_workspace) {
+        opt.selected = true;
+      }
+      dom.selectWorkspace.appendChild(opt);
+    });
+    if (dom.inputProjectName) {
+      dom.inputProjectName.value = data.active_workspace;
+    }
+  } catch (err) {
+    console.error("Failed to load workspaces list:", err);
+  }
+}
+
+if (dom.selectWorkspace) {
+  dom.selectWorkspace.addEventListener("change", async () => {
+    const targetWs = dom.selectWorkspace.value;
+    if (!targetWs) return;
+    try {
+      const res = await fetch("/api/workspace/load", {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ project_name: targetWs })
+      });
+      if (!res.ok) return;
+      const state = await res.json();
+      renderAll(state);
+      await loadWorkspacesList();
+      dom.previewFrame.src = "/api/workspace/preview?t=" + Date.now();
+    } catch (err) {
+      console.error("Failed to load workspace:", err);
+    }
+  });
+}
+
+if (dom.btnNewWorkspace) {
+  dom.btnNewWorkspace.addEventListener("click", async () => {
+    const name = prompt("Enter a unique name for the new workspace (e.g. 'flower_shop', 'arcade_game'):");
+    if (!name || !name.trim()) return;
+    try {
+      const res = await fetch("/api/workspace/new", {
+        method: "POST",
+        headers: getHeaders(),
+        body: JSON.stringify({ project_name: name.trim() })
+      });
+      if (!res.ok) return;
+      const state = await res.json();
+      renderAll(state);
+      await loadWorkspacesList();
+      dom.previewFrame.src = "/api/workspace/preview?t=" + Date.now();
+    } catch (err) {
+      console.error("Failed to create new workspace:", err);
+    }
+  });
+}
+
 // Initial state fetch
+loadWorkspacesList();
 fetchState();

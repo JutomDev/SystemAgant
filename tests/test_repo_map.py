@@ -6,6 +6,7 @@ from core.repo_map import (
     parse_js_symbols,
     parse_html_symbols,
     generate_repo_map,
+    generate_task_scoped_repo_map,
 )
 
 
@@ -86,3 +87,25 @@ def test_generate_repo_map(tmp_path: Path):
     assert "[index.html]" in repo_map
     assert "[style.css]" in repo_map
     assert "--accent" in repo_map
+
+
+def test_generate_task_scoped_repo_map(tmp_path: Path):
+    # Create 12 dummy files
+    for i in range(12):
+        (tmp_path / f"service_{i}.py").write_text(f"def action_{i}(): pass\n", encoding="utf-8")
+    
+    (tmp_path / "target_catalog.py").write_text("class CatalogModel: pass\n", encoding="utf-8")
+    (tmp_path / "catalog_view.py").write_text("import target_catalog\ndef render(): pass\n", encoding="utf-8")
+
+    # Scoped to target_catalog.py with max_files=4
+    scoped = generate_task_scoped_repo_map(
+        tmp_path,
+        target_file="target_catalog.py",
+        task_description="Implement catalog rendering and product display",
+        max_files=4,
+    )
+
+    assert "[target_catalog.py]" in scoped
+    assert "CatalogModel" in scoped
+    assert "[catalog_view.py]" in scoped
+    assert "Task-Scoped Repository Map" in scoped
