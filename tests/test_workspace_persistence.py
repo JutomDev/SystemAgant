@@ -63,3 +63,46 @@ def test_workspace_persistence_and_resume():
     assert extend_data["awaiting_hitl"] is True
     # Verify WBS now has an additional epic
     assert len(extend_data["wbs"]) >= 2
+
+
+def test_load_existing_files_workspace_and_preview():
+    """Verifies that an existing codebase with files synthesizes an architecture WBS and serves preview."""
+    load_res = client.post("/api/workspace/load", json={"project_name": "run_01_botanical_shop"})
+    assert load_res.status_code == 200
+    data = load_res.json()
+    assert data["project_name"] == "run_01_botanical_shop"
+    assert data["current_phase"] == "COMPLETED"
+    
+    # Verify files
+    file_names = [f["name"] for f in data["files"]]
+    assert "index.html" in file_names
+    assert "catalog.html" in file_names
+    assert "contact.html" in file_names
+    assert "style.css" in file_names
+    assert file_names[0] == "index.html"  # index.html always first
+
+    # Verify preview returns HTML
+    prev_res = client.get("/api/workspace/preview")
+    assert prev_res.status_code == 200
+    assert "<!DOCTYPE html>" in prev_res.text or "<html" in prev_res.text
+
+
+def test_load_statedb_checkpoint_workspace():
+    """Verifies that past LangGraph state.db checkpoints are fully recovered into chat messages and WBS."""
+    load_res = client.post("/api/workspace/load", json={"project_name": "Web_shop"})
+    assert load_res.status_code == 200
+    data = load_res.json()
+    assert data["project_name"] == "Web_shop"
+    
+    # Must have recovered all past messages from LangGraph checkpoints
+    assert len(data["chat_messages"]) >= 30
+    assert data["chat_messages"][0]["sender"] == "user"
+    assert "kwiaciaria-mex" in data["chat_messages"][0]["text"]
+    assert len(data["wbs"]) >= 1
+
+    # Check non-html preview for backend workspaces
+    client.post("/api/workspace/load", json={"project_name": "test_sprawdzam"})
+    prev_res = client.get("/api/workspace/preview")
+    assert prev_res.status_code == 200
+    assert "NON-HTML WORKSPACE DETECTED" in prev_res.text
+

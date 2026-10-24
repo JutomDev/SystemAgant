@@ -242,13 +242,13 @@ function renderFiles(files) {
     const currentVal = dom.previewPageSelect.value;
     dom.previewPageSelect.innerHTML = "";
     if (htmlFiles.length === 0) {
-      dom.previewPageSelect.innerHTML = '<option value="index.html">index.html (Default)</option>';
+      dom.previewPageSelect.innerHTML = '<option value="">No HTML pages</option>';
     } else {
-      htmlFiles.forEach(hf => {
+      htmlFiles.forEach((hf, idx) => {
         const opt = document.createElement("option");
         opt.value = hf.name;
         opt.textContent = `${hf.name} (${hf.size} B)`;
-        if (hf.name === currentVal) opt.selected = true;
+        if (hf.name === currentVal || (!currentVal && idx === 0)) opt.selected = true;
         dom.previewPageSelect.appendChild(opt);
       });
     }
@@ -256,6 +256,8 @@ function renderFiles(files) {
 
   if (currentFiles.length === 0) {
     dom.fileTree.innerHTML = '<div style="color: var(--text-dim); font-size: 11px; padding: 10px;">// Workspace directory empty.</div>';
+    dom.codeFilename.textContent = "// No files in workspace";
+    dom.codeContent.textContent = "// Workspace contains no code files yet. Describe your requirements to generate code.";
     return;
   }
 
@@ -280,6 +282,10 @@ function renderFiles(files) {
       }
     });
   });
+
+  // Auto-load primary file into the code viewer
+  const defaultFile = currentFiles[0].name;
+  loadFileContent(defaultFile);
 }
 
 async function loadFileContent(filename) {
@@ -513,7 +519,15 @@ if (dom.selectWorkspace) {
       const state = await res.json();
       renderAll(state);
       await loadWorkspacesList();
-      dom.previewFrame.src = "/api/workspace/preview?t=" + Date.now();
+      
+      // Determine primary file for preview
+      const htmlFile = (state.files || []).find(f => f.name.endsWith(".html"));
+      const previewFile = htmlFile ? htmlFile.name : "";
+      if (previewFile) {
+        dom.previewFrame.src = `/api/workspace/preview?file=${encodeURIComponent(previewFile)}&t=${Date.now()}`;
+      } else {
+        dom.previewFrame.src = `/api/workspace/preview?t=${Date.now()}`;
+      }
     } catch (err) {
       console.error("Failed to load workspace:", err);
     }
@@ -534,7 +548,7 @@ if (dom.btnNewWorkspace) {
       const state = await res.json();
       renderAll(state);
       await loadWorkspacesList();
-      dom.previewFrame.src = "/api/workspace/preview?t=" + Date.now();
+      dom.previewFrame.src = `/api/workspace/preview?t=${Date.now()}`;
     } catch (err) {
       console.error("Failed to create new workspace:", err);
     }

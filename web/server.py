@@ -33,6 +33,158 @@ from core.repo_map import generate_repo_map, generate_task_scoped_repo_map
 
 WEB_DIR = Path(__file__).resolve().parent
 
+IGNORED_DIRS = {
+    ".venv", "venv", "node_modules", "__pycache__", ".git", "dist", "build",
+    ".systemagant", ".pytest_cache", ".benchmarks", ".cache", ".idea", ".vscode"
+}
+IGNORED_EXTENSIONS = {".db", ".sqlite", ".sqlite3", ".log", ".pyc", ".tmp"}
+
+
+def is_project_file(p: Path) -> bool:
+    """Verifies that path is a valid workspace source file and not internal state or junk."""
+    if not p.is_file():
+        return False
+    if any(part in IGNORED_DIRS for part in p.parts):
+        return False
+    if p.name.startswith(".") or p.name.endswith(tuple(IGNORED_EXTENSIONS)):
+        return False
+    return True
+
+
+def scan_workspace_files(workspace_path: Path) -> List[Dict[str, Any]]:
+    """Scans and returns all project files, sorting index.html and HTML files first."""
+    files: List[Dict[str, Any]] = []
+    if not workspace_path.exists():
+        return files
+    for p in workspace_path.rglob("*"):
+        if is_project_file(p):
+            rel_name = str(p.relative_to(workspace_path)).replace("\\", "/")
+            files.append({"name": rel_name, "size": p.stat().st_size})
+    files.sort(key=lambda x: (
+        0 if x["name"] == "index.html" else (1 if x["name"].endswith(".html") else 2),
+        x["name"].lower()
+    ))
+    return files
+
+
+def serialize_wbs(wbs_raw: Any) -> List[Dict[str, Any]]:
+    """Normalizes WBS data models into plain JSON-serializable dictionaries."""
+    if not wbs_raw:
+        return []
+    clean_wbs: List[Dict[str, Any]] = []
+    for item in wbs_raw:
+        if hasattr(item, "model_dump"):
+            clean_wbs.append(item.model_dump())
+        elif isinstance(item, dict):
+            clean_epic = dict(item)
+            if "tasks" in clean_epic:
+                clean_tasks: List[Dict[str, Any]] = []
+                for t in clean_epic["tasks"]:
+                    if hasattr(t, "model_dump"):
+                        clean_tasks.append(t.model_dump())
+                    elif isinstance(t, dict):
+                        clean_tasks.append(dict(t))
+                clean_epic["tasks"] = clean_tasks
+            clean_wbs.append(clean_epic)
+    return clean_wbs
+
+
+def serialize_logs(logs_raw: Any) -> List[Dict[str, Any]]:
+    """Normalizes execution logs into plain dictionaries."""
+    if not logs_raw:
+        return []
+    clean_logs: List[Dict[str, Any]] = []
+    for l in logs_raw:
+        if hasattr(l, "model_dump"):
+            clean_logs.append(l.model_dump())
+        elif isinstance(l, dict):
+            clean_logs.append(dict(l))
+        else:
+            clean_logs.append({"node": "system", "content": str(l), "timestamp": 1})
+    return clean_logs
+
+
+def convert_langgraph_messages_to_ui(raw_messages: List[Any], wbs: List[Any]) -> List[Dict[str, Any]]:
+    """Translates LangGraph BaseMessage objects from SQLite checkpoints into UI chat messages."""
+    ui_messages: List[Dict[str, Any]] = []
+    for i, m in enumerate(raw_messages):
+        author = type(m).__name__
+        text = str(getattr(m, "content", ""))
+        if author == "HumanMessage":
+            ui_messages.append({
+                "id": f"msg_{i}",
+                "sender": "user",
+                "title": "User",
+                "text": text,
+                "type": "user",
+            })
+        elif author == "ToolMessage":
+            tool_name = getattr(m, "name", "sandbox")
+            ui_messages.append({
+                "id": f"msg_{i}",
+                "sender": "tester",
+                "title": f"Tool: {tool_name}",
+                "text": text,
+                "type": "tester",
+            })
+        else:
+            # AIMessage or generic assistant turn
+            title = "Architect"
+            sender = "architect"
+            msg_type = "agent"
+            has_wbs = False
+            text_lower = text.lower()
+            if "coder" in text_lower or "implemented" in text_lower or text.strip().startswith("<!DOCTYPE") or "def " in text:
+                title = "Coder"
+                sender = "coder"
+                msg_type = "coder"
+            elif "tester" in text_lower or "verified" in text_lower or "exit code: 0" in text_lower:
+                title = "Tester"
+                sender = "tester"
+                msg_type = "tester"
+            elif "wbs" in text_lower or "epics" in text_lower or "atomic tasks" in text_lower or "architecture" in text_lower:
+                title = "Architect"
+                sender = "architect"
+                msg_type = "agent"
+                has_wbs = bool(wbs)
+
+            ui_messages.append({
+                "id": f"msg_{i}",
+                "sender": sender,
+                "title": title,
+                "text": text,
+                "type": msg_type,
+                "has_wbs": has_wbs,
+            })
+    return ui_messages
+
+
+def extract_state_from_db(workspace_path: Path, project_name: str) -> Optional[Dict[str, Any]]:
+    """Extracts the latest checkpoint channel values from LangGraph SQLite checkpointer."""
+    db_path = workspace_path / "state.db"
+    if not db_path.is_file():
+        return None
+    try:
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        thread_id = f"thread_{project_name}"
+        with SqliteSaver.from_conn_string(str(db_path)) as cp:
+            checkpoint = cp.get({"configurable": {"thread_id": thread_id}})
+            if not checkpoint or "channel_values" not in checkpoint:
+                import sqlite3
+                con = sqlite3.connect(str(db_path))
+                row = con.execute("SELECT thread_id FROM checkpoints ORDER BY checkpoint_id DESC LIMIT 1").fetchone()
+                con.close()
+                if row:
+                    checkpoint = cp.get({"configurable": {"thread_id": row[0]}})
+
+            if not checkpoint or "channel_values" not in checkpoint:
+                return None
+            return checkpoint["channel_values"]
+    except Exception as e:
+        logger.warning("Failed to extract state from db %s: %s", db_path, e)
+        return None
+
+
 app = FastAPI(
     title="SystemAgant Tactile Dashboard",
     description="Interactive Multi-Agent Chat, Telemetry Rack & Live Preview",
@@ -128,37 +280,92 @@ class DashboardSession:
 
     def load_state_from_disk(self) -> bool:
         s_file = self.workspace_path / ".systemagant" / "session.json"
+        db_file = self.workspace_path / "state.db"
+
+        # Check if state.db has rich checkpoints
+        db_cv = extract_state_from_db(self.workspace_path, self.project_name) if db_file.is_file() else None
+
+        # 1. If session.json exists on disk
         if s_file.is_file():
             try:
                 data = json.loads(s_file.read_text(encoding="utf-8"))
+                saved_msgs = data.get("chat_messages", [])
+
+                # If session.json was only a 1-message stub, but state.db has real history, prefer state.db!
+                if db_cv and len(db_cv.get("messages", [])) > len(saved_msgs):
+                    raw_wbs = serialize_wbs(db_cv.get("wbs", []))
+                    raw_msgs = db_cv.get("messages", [])
+                    self.chat_messages = convert_langgraph_messages_to_ui(raw_msgs, raw_wbs)
+                    self.wbs = raw_wbs
+                    self.logs = serialize_logs(db_cv.get("execution_logs", []))
+                    self.current_phase = str(db_cv.get("current_phase", "completed"))
+                    self.current_task_id = db_cv.get("current_task_id")
+                    self.iteration = int(db_cv.get("current_iteration", len(self.chat_messages)))
+                    self.active_node = "router"
+                    self.awaiting_hitl = (self.current_phase == "approval")
+                    self.save_state_to_disk()
+                    return True
+
                 self.project_name = data.get("project_name", self.project_name)
                 self.active_node = data.get("active_node", "router")
                 self.current_phase = data.get("current_phase", "completed")
                 self.iteration = data.get("iteration", 1)
                 self.awaiting_hitl = data.get("awaiting_hitl", False)
                 self.current_task_id = data.get("current_task_id")
-                self.chat_messages = data.get("chat_messages", [])
+                self.chat_messages = saved_msgs
                 self.wbs = data.get("wbs", [])
                 self.logs = data.get("logs", [])
                 return True
             except Exception as e:
                 logger.error("Failed to load workspace session: %s", e)
 
-        # Hydrate from existing workspace files if session.json is absent
-        existing_files = [
-            p for p in self.workspace_path.rglob("*")
-            if p.is_file() and not p.name.startswith(".") and ".systemagant" not in p.parts
-        ]
+        # 2. If no valid session.json, but state.db exists
+        if db_cv:
+            raw_wbs = serialize_wbs(db_cv.get("wbs", []))
+            raw_msgs = db_cv.get("messages", [])
+            self.chat_messages = convert_langgraph_messages_to_ui(raw_msgs, raw_wbs)
+            self.wbs = raw_wbs
+            self.logs = serialize_logs(db_cv.get("execution_logs", []))
+            self.current_phase = str(db_cv.get("current_phase", "completed"))
+            self.current_task_id = db_cv.get("current_task_id")
+            self.iteration = int(db_cv.get("current_iteration", len(self.chat_messages)))
+            self.active_node = "router"
+            self.awaiting_hitl = (self.current_phase == "approval")
+            self.save_state_to_disk()
+            return True
+
+        # 3. Hydrate from existing workspace files if session.json & state.db are absent
+        existing_files = scan_workspace_files(self.workspace_path)
         if existing_files:
             self.active_node = "router"
             self.current_phase = "completed"
             self.iteration = 1
             self.awaiting_hitl = False
             self.current_task_id = None
-            self.wbs = []
+
+            # Synthesize initial WBS showing all existing component files
+            epic_tasks = []
+            for i, f in enumerate(existing_files):
+                epic_tasks.append({
+                    "task_id": f"TASK_RESUME_{i + 1}",
+                    "epic_id": "EPIC_DISCOVERED",
+                    "description": f"Verified existing component: '{f['name']}' ({f['size']} bytes).",
+                    "target_files": [f["name"]],
+                    "status": "completed"
+                })
+            self.wbs = [{
+                "epic_id": "EPIC_DISCOVERED",
+                "description": f"Discovered existing codebase architecture ({len(existing_files)} component files)",
+                "tasks": epic_tasks
+            }]
+
+            file_names = ", ".join(f["name"] for f in existing_files[:5])
+            if len(existing_files) > 5:
+                file_names += f" and {len(existing_files) - 5} more"
+
             self.logs = [{
                 "node": "router",
-                "content": f"Hydrated workspace '{self.project_name}' with {len(existing_files)} existing files.",
+                "content": f"Hydrated workspace '{self.project_name}' with {len(existing_files)} existing files: {file_names}.",
                 "timestamp": 1,
             }]
             self.chat_messages = [
@@ -168,9 +375,11 @@ class DashboardSession:
                     "title": "Architect",
                     "text": (
                         f"Resumed active workspace: 'workspaces/{self.project_name}'. "
-                        f"Found {len(existing_files)} existing files. "
-                        "Inspect the live preview or files, or enter new requirements to extend this project."
+                        f"Discovered {len(existing_files)} files: {file_names}. "
+                        "Live preview has loaded the primary interface. You can inspect all files in 'Workspace Files', "
+                        "or enter follow-up instructions to extend this project."
                     ),
+                    "has_wbs": True,
                     "type": "agent",
                 }
             ]
@@ -666,15 +875,10 @@ class DashboardSession:
                 if t.get("status") == "completed":
                     completed_tasks += 1
 
-        progress = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else 0
+        progress = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else (100 if self.current_phase.lower() == "completed" else 0)
 
-        # Workspace file list (recursive relative paths, excluding internal state)
-        files = []
-        if self.workspace_path.exists():
-            for p in self.workspace_path.rglob("*"):
-                if p.is_file() and not p.name.endswith(".db") and not p.name.endswith(".log") and ".systemagant" not in p.parts:
-                    rel_name = str(p.relative_to(self.workspace_path)).replace("\\", "/")
-                    files.append({"name": rel_name, "size": p.stat().st_size})
+        # Workspace file list (recursive relative paths, excluding internal state and junk)
+        files = scan_workspace_files(self.workspace_path)
 
         return {
             "mode": self._get_active_config().mode.upper(),
@@ -685,7 +889,7 @@ class DashboardSession:
             "current_task_id": self.current_task_id,
             "progress_percent": progress,
             "chat_messages": self.chat_messages,
-            "logs": self.logs[-25:],
+            "logs": self.logs[-50:],
             "wbs": self.wbs,
             "files": files,
             "has_api_key": bool(self.session_key),
@@ -734,11 +938,9 @@ def list_workspaces() -> JSONResponse:
     if workspaces_dir.exists():
         for d in sorted(workspaces_dir.iterdir()):
             if d.is_dir() and not d.name.startswith("."):
-                files = [
-                    p.name for p in d.rglob("*")
-                    if p.is_file() and not p.name.startswith(".") and ".systemagant" not in p.parts
-                ]
+                files = scan_workspace_files(d)
                 has_session = (d / ".systemagant" / "session.json").is_file()
+                has_db = (d / "state.db").is_file()
                 phase = "READY"
                 if has_session:
                     try:
@@ -746,12 +948,12 @@ def list_workspaces() -> JSONResponse:
                         phase = s_data.get("current_phase", "completed").upper()
                     except Exception:
                         pass
-                elif files:
+                elif has_db or files:
                     phase = "COMPLETED"
                 result.append({
                     "name": d.name,
                     "file_count": len(files),
-                    "has_session": has_session,
+                    "has_session": has_session or has_db,
                     "phase": phase,
                     "is_active": (d.name == _session.project_name),
                 })
@@ -793,43 +995,69 @@ def get_file_content(path: str = Query(...)) -> PlainTextResponse:
 
 
 @app.get("/api/workspace/preview")
-def preview_workspace(file: str = "index.html") -> HTMLResponse:
-    try:
-        clean_path = file.lstrip("/").lstrip("\\")
-        target = (_session.workspace_path / clean_path).resolve()
-        base = _session.workspace_path.resolve()
-        if not str(target).startswith(str(base)) or not target.is_file():
-            # Fallback to index.html if specific page not created yet
-            index_target = _session.workspace_path / "index.html"
-            if index_target.is_file():
-                target = index_target
-            else:
-                return HTMLResponse(
-                    content="""<!DOCTYPE html><html><body style="background:#0d0f12;color:#8c9ba5;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;">
-                    <div style="text-align:center;border:1px dashed #2d333b;padding:30px;">
-                        <h3 style="color:#e6a23c;">[ NO ACTIVE BUILD IN WORKSPACE ]</h3>
-                        <p>Send a prompt in the chat and approve the plan to generate and preview your project.</p>
-                    </div></body></html>"""
-                )
-    except Exception:
-        target = _session.workspace_path / "index.html"
-        if not target.is_file():
-            return HTMLResponse(content="<h3>No preview available</h3>")
+def preview_workspace(file: Optional[str] = None) -> HTMLResponse:
+    files = scan_workspace_files(_session.workspace_path)
+    html_files = [f["name"] for f in files if f["name"].endswith(".html")]
 
-    with open(target, "r", encoding="utf-8") as f:
-        html_code = f.read()
+    target_name = file
+    if not target_name:
+        if "index.html" in html_files:
+            target_name = "index.html"
+        elif html_files:
+            target_name = html_files[0]
 
-    # If style.css exists, inline it into preview to guarantee CSS renders in iframe
-    style_file = _session.workspace_path / "style.css"
-    if style_file.is_file():
-        with open(style_file, "r", encoding="utf-8") as sf:
-            css_code = sf.read()
-        if "</head>" in html_code:
-            html_code = html_code.replace("</head>", f"<style>{css_code}</style></head>")
-        else:
-            html_code = f"<style>{css_code}</style>" + html_code
+    if target_name and target_name.endswith(".html"):
+        try:
+            clean_path = target_name.lstrip("/").lstrip("\\")
+            target = (_session.workspace_path / clean_path).resolve()
+            base = _session.workspace_path.resolve()
+            if str(target).startswith(str(base)) and target.is_file():
+                with open(target, "r", encoding="utf-8") as f:
+                    html_code = f.read()
 
-    return HTMLResponse(content=html_code)
+                style_file = _session.workspace_path / "style.css"
+                if style_file.is_file():
+                    with open(style_file, "r", encoding="utf-8") as sf:
+                        css_code = sf.read()
+                    if "</head>" in html_code:
+                        html_code = html_code.replace("</head>", f"<style>{css_code}</style></head>")
+                    else:
+                        html_code = f"<style>{css_code}</style>" + html_code
+
+                return HTMLResponse(content=html_code)
+        except Exception as e:
+            logger.warning("Error reading preview file %s: %s", target_name, e)
+
+    # If non-HTML codebase files exist (e.g. Python CLI, JS, etc.)
+    if files:
+        file_items_html = "".join(
+            f'<li style="margin: 6px 0; color: #58a6ff;">[FILE] {f["name"]} <span style="color:#8c9ba5;">({f["size"]} B)</span></li>'
+            for f in files[:12]
+        )
+        return HTMLResponse(
+            content=f"""<!DOCTYPE html><html><body style="background:#0d0f12;color:#d8dee9;font-family:ui-monospace,monospace;padding:30px;margin:0;">
+            <div style="border:1px solid #2d333b;padding:24px;background:#161b22;border-radius:4px;max-width:700px;margin:0 auto;">
+                <h3 style="color:#e6a23c;margin-top:0;">[ NON-HTML WORKSPACE DETECTED ]</h3>
+                <p style="color:#8c9ba5;font-size:12px;margin-bottom:14px;">
+                    This workspace ('workspaces/{_session.project_name}') contains backend / CLI source code:
+                </p>
+                <ul style="list-style:none;padding:0;margin:0 0 16px 0;font-size:12px;">
+                    {file_items_html}
+                </ul>
+                <div style="color:#3fb950;font-size:11px;border-top:1px dashed #2d333b;padding-top:12px;">
+                    &gt; Switch to the <strong>Workspace Files</strong> tab to view and inspect all code files.
+                </div>
+            </div></body></html>"""
+        )
+
+    # Empty workspace
+    return HTMLResponse(
+        content="""<!DOCTYPE html><html><body style="background:#0d0f12;color:#8c9ba5;font-family:monospace;display:flex;align-items:center;justify-content:center;height:100vh;">
+        <div style="text-align:center;border:1px dashed #2d333b;padding:30px;">
+            <h3 style="color:#e6a23c;">[ NO ACTIVE BUILD IN WORKSPACE ]</h3>
+            <p>Send a prompt in the chat and approve the plan to generate and preview your project.</p>
+        </div></body></html>"""
+    )
 
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
