@@ -94,67 +94,78 @@ async function fetchState() {
 }
 
 function renderAll(data) {
-  renderHeaderAndGraph(data);
-  renderChat(data);
-  renderWbs(data.wbs);
-  renderFiles(data.files);
-  renderLogs(data.logs);
+  if (!data) return;
+  try { renderHeaderAndGraph(data); } catch (err) { console.error("renderHeaderAndGraph error:", err); }
+  try { renderChat(data); } catch (err) { console.error("renderChat error:", err); }
+  try { renderWbs(data.wbs); } catch (err) { console.error("renderWbs error:", err); }
+  try { renderFiles(data.files); } catch (err) { console.error("renderFiles error:", err); }
+  try { renderLogs(data.logs); } catch (err) { console.error("renderLogs error:", err); }
 }
 
 function renderHeaderAndGraph(data) {
   const modeText = data.mode === "GEMINI-FREE" ? "GEMINI FLASH LIVE" : (data.mode || "LIVE");
-  dom.modeLabel.textContent = modeText;
-  dom.graphCycleMeta.textContent = `CYCLE: ${data.iteration || 0} | PHASE: ${data.current_phase || "IDLE"}`;
-  dom.chatStatusMeta.textContent = `STATUS: ${data.current_phase}`;
+  if (dom.modeLabel) dom.modeLabel.textContent = modeText;
+  if (dom.graphCycleMeta) dom.graphCycleMeta.textContent = `CYCLE: ${data.iteration || 0} | PHASE: ${data.current_phase || "IDLE"}`;
+  if (dom.chatStatusMeta) dom.chatStatusMeta.textContent = `STATUS: ${data.current_phase || "IDLE"}`;
 
   // Update LEDs
   const active = (data.active_node || "").toLowerCase();
-  [dom.ledArchitect, dom.ledCoder, dom.ledTester, dom.ledRouter].forEach(el => el.classList.remove("active"));
+  [dom.ledArchitect, dom.ledCoder, dom.ledTester, dom.ledRouter].forEach(el => {
+    if (el) el.classList.remove("active");
+  });
   
-  if (active === "architect") dom.ledArchitect.classList.add("active");
-  if (active === "coder") dom.ledCoder.classList.add("active");
-  if (active === "tester") dom.ledTester.classList.add("active");
-  if (active === "router") dom.ledRouter.classList.add("active");
+  if (active === "architect" && dom.ledArchitect) dom.ledArchitect.classList.add("active");
+  if (active === "coder" && dom.ledCoder) dom.ledCoder.classList.add("active");
+  if (active === "tester" && dom.ledTester) dom.ledTester.classList.add("active");
+  if (active === "router" && dom.ledRouter) dom.ledRouter.classList.add("active");
 
   // Update wire nodes
-  [dom.nodeRouter, dom.nodeArchitect, dom.nodeCoder, dom.nodeTester, dom.nodeHuman].forEach(el => el.classList.remove("active"));
-  [dom.statusRouter, dom.statusArchitect, dom.statusCoder, dom.statusTester, dom.statusHuman].forEach(el => el.textContent = "STANDBY");
+  [dom.nodeRouter, dom.nodeArchitect, dom.nodeCoder, dom.nodeTester, dom.nodeHuman].forEach(el => {
+    if (el) el.classList.remove("active");
+  });
+  [dom.statusRouter, dom.statusArchitect, dom.statusCoder, dom.statusTester, dom.statusHuman].forEach(el => {
+    if (el) el.textContent = "STANDBY";
+  });
 
-  if (active === "router") {
+  if (active === "router" && dom.nodeRouter) {
     dom.nodeRouter.classList.add("active");
-    dom.statusRouter.textContent = "EVALUATING";
-  } else if (active === "architect") {
+    if (dom.statusRouter) dom.statusRouter.textContent = "EVALUATING";
+  } else if (active === "architect" && dom.nodeArchitect) {
     dom.nodeArchitect.classList.add("active");
-    dom.statusArchitect.textContent = "SYNTHESIZING";
-  } else if (active === "coder") {
+    if (dom.statusArchitect) dom.statusArchitect.textContent = "SYNTHESIZING";
+  } else if (active === "coder" && dom.nodeCoder) {
     dom.nodeCoder.classList.add("active");
-    dom.statusCoder.textContent = "GENERATING";
-  } else if (active === "tester") {
+    if (dom.statusCoder) dom.statusCoder.textContent = "GENERATING";
+  } else if (active === "tester" && dom.nodeTester) {
     dom.nodeTester.classList.add("active");
-    dom.statusTester.textContent = "VERIFYING";
-  } else if (active === "human_approval") {
+    if (dom.statusTester) dom.statusTester.textContent = "VERIFYING";
+  } else if (active === "human_approval" && dom.nodeHuman) {
     dom.nodeHuman.classList.add("active");
-    dom.statusHuman.textContent = "AWAITING";
+    if (dom.statusHuman) dom.statusHuman.textContent = "AWAITING";
   }
 
   // HITL Banner Visibility
-  if (data.awaiting_hitl) {
-    dom.hitlBanner.classList.remove("hidden");
-  } else {
-    dom.hitlBanner.classList.add("hidden");
+  if (dom.hitlBanner) {
+    if (data.awaiting_hitl) {
+      dom.hitlBanner.classList.remove("hidden");
+    } else {
+      dom.hitlBanner.classList.add("hidden");
+    }
   }
 
   // Progress Meter
   const pct = data.progress_percent || 0;
-  dom.progressVal.textContent = `${pct}%`;
-  const segs = dom.progressMeter.querySelectorAll(".meter-segment");
-  const fillCount = Math.round((pct / 100) * segs.length);
-  segs.forEach((seg, i) => {
-    if (i < fillCount) seg.classList.add("filled");
-    else seg.classList.remove("filled");
-  });
+  if (dom.progressVal) dom.progressVal.textContent = `${pct}%`;
+  if (dom.progressMeter) {
+    const segs = dom.progressMeter.querySelectorAll(".meter-segment");
+    const fillCount = Math.round((pct / 100) * segs.length);
+    segs.forEach((seg, i) => {
+      if (i < fillCount) seg.classList.add("filled");
+      else seg.classList.remove("filled");
+    });
+  }
 
-  if (data.has_api_key || sessionApiKey) {
+  if ((data.has_api_key || sessionApiKey) && dom.btnApiKey) {
     dom.btnApiKey.textContent = "[ KEY: ACTIVE ]";
     dom.btnApiKey.style.color = "var(--accent-green)";
   }
@@ -289,15 +300,27 @@ function renderFiles(files) {
 }
 
 async function loadFileContent(filename) {
-  dom.codeFilename.textContent = `// ${filename}`;
-  dom.codeContent.textContent = "// Fetching content from sandbox...";
+  if (dom.codeFilename) dom.codeFilename.textContent = `// ${filename}`;
+  if (dom.codeContent) dom.codeContent.textContent = "// Fetching content from sandbox...";
+
+  // Highlight active file in file tree
+  if (dom.fileTree) {
+    dom.fileTree.querySelectorAll(".file-item, .file-tree-item").forEach(el => {
+      if (el.getAttribute("data-filename") === filename) {
+        el.classList.add("selected");
+      } else {
+        el.classList.remove("selected");
+      }
+    });
+  }
+
   try {
     const res = await fetch(`/api/workspace/file?path=${encodeURIComponent(filename)}`);
     if (!res.ok) throw new Error("File not found");
     const text = await res.text();
-    dom.codeContent.textContent = text;
+    if (dom.codeContent) dom.codeContent.textContent = text;
   } catch (err) {
-    dom.codeContent.textContent = `// Error loading file: ${err.message}`;
+    if (dom.codeContent) dom.codeContent.textContent = `// Error loading file: ${err.message}`;
   }
 }
 

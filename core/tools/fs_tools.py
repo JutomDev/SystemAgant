@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+
 from langchain_core.tools import tool
 
 
 def _secure_path(workspace_path: str, user_path: str) -> Path:
     """Validates path and enforces that target file resides strictly within workspace.
-    
+
     Prevents path traversal attacks (e.g. '../', absolute paths, symlink escapes).
     """
     base_path = Path(workspace_path).resolve()

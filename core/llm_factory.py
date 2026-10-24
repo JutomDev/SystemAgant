@@ -12,14 +12,13 @@ import logging
 import os
 import re
 import time
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import Runnable
 from langchain_core.tools import BaseTool
 
 from core.config import AppConfig, get_config
-from core.models import ArchitectOutput
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +26,7 @@ logger = logging.getLogger(__name__)
 FALLBACK_MODELS = ["gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-2.5-flash", "gemini-3.5-flash"]
 
 
-def _extract_retry_delay(err_msg: str, default_delay: float = 12.0) -> Optional[float]:
+def _extract_retry_delay(err_msg: str, default_delay: float = 12.0) -> float | None:
     """Extracts retryDelay in seconds. If delay > 60s, returns None to indicate daily quota exhaustion."""
     match = re.search(r"retryDelay':\s*'(\d+)s'", err_msg)
     if match:
@@ -48,7 +47,7 @@ class GeminiArchitectAdapter(Runnable):
         api_key: str,
         model: str = "gemini-3.5-flash",
         temperature: float = 0.2,
-        target_schema: Optional[Type[Any]] = None,
+        target_schema: type[Any] | None = None,
         max_retries: int = 4,
     ) -> None:
         super().__init__()
@@ -62,10 +61,11 @@ class GeminiArchitectAdapter(Runnable):
     def _get_client(self) -> Any:
         if self._client is None:
             from google import genai
+
             self._client = genai.Client(api_key=self.api_key)
         return self._client
 
-    def with_structured_output(self, schema: Type[Any]) -> "GeminiArchitectAdapter":
+    def with_structured_output(self, schema: type[Any]) -> GeminiArchitectAdapter:
         """Returns a cloned adapter configured for deterministic Pydantic output."""
         return GeminiArchitectAdapter(
             api_key=self.api_key,
@@ -75,13 +75,13 @@ class GeminiArchitectAdapter(Runnable):
             max_retries=self.max_retries,
         )
 
-    def invoke(self, input: Any, config: Optional[Any] = None) -> Any:
+    def invoke(self, input: Any, config: Any | None = None) -> Any:
         client = self._get_client()
         from google.genai import errors, types
 
         # 1. Convert input to text prompt and optional system instruction
-        system_instruction: Optional[str] = None
-        user_prompt_parts: List[str] = []
+        system_instruction: str | None = None
+        user_prompt_parts: list[str] = []
 
         if isinstance(input, list):
             for msg in input:
@@ -105,7 +105,7 @@ class GeminiArchitectAdapter(Runnable):
         prompt_text = "\n\n".join(user_prompt_parts)
 
         # 2. Build GenerateContentConfig
-        cfg_kwargs: Dict[str, Any] = {
+        cfg_kwargs: dict[str, Any] = {
             "temperature": self.temperature,
         }
         if system_instruction:
@@ -145,13 +145,23 @@ class GeminiArchitectAdapter(Runnable):
                         delay = _extract_retry_delay(err_str)
                         if delay is None:
                             # Daily quota reached for current_model, switch to next model
-                            logger.warning("[RateLimit] Daily quota reached for %s. Falling back to next model...", current_model)
-                            print(f"[*] Daily quota reached for {current_model}. Switching to alternative model...", flush=True)
+                            logger.warning(
+                                "[RateLimit] Daily quota reached for %s. Falling back to next model...", current_model
+                            )
+                            print(
+                                f"[*] Daily quota reached for {current_model}. Switching to alternative model...",
+                                flush=True,
+                            )
                             break
                         else:
                             # Per-minute rate limit, wait and retry
-                            logger.warning("[RateLimit] 429 received in Architect (%s). Pausing for %.1fs...", current_model, delay)
-                            print(f"[*] Rate limit (429) on {current_model}. Waiting {delay:.1f}s before retry...", flush=True)
+                            logger.warning(
+                                "[RateLimit] 429 received in Architect (%s). Pausing for %.1fs...", current_model, delay
+                            )
+                            print(
+                                f"[*] Rate limit (429) on {current_model}. Waiting {delay:.1f}s before retry...",
+                                flush=True,
+                            )
                             time.sleep(delay)
                             continue
                     raise err
@@ -171,7 +181,7 @@ class GeminiCoderAdapter(Runnable):
         api_key: str,
         model: str = "gemini-3.5-flash",
         temperature: float = 0.1,
-        tools: Optional[List[Any]] = None,
+        tools: list[Any] | None = None,
         max_retries: int = 4,
     ) -> None:
         super().__init__()
@@ -185,10 +195,11 @@ class GeminiCoderAdapter(Runnable):
     def _get_client(self) -> Any:
         if self._client is None:
             from google import genai
+
             self._client = genai.Client(api_key=self.api_key)
         return self._client
 
-    def bind_tools(self, tools: List[Any], **kwargs: Any) -> "GeminiCoderAdapter":
+    def bind_tools(self, tools: list[Any], **kwargs: Any) -> GeminiCoderAdapter:
         """Binds tool declarations for function calling."""
         return GeminiCoderAdapter(
             api_key=self.api_key,
@@ -198,7 +209,7 @@ class GeminiCoderAdapter(Runnable):
             max_retries=self.max_retries,
         )
 
-    def invoke(self, input: Any, config: Optional[Any] = None) -> AIMessage:
+    def invoke(self, input: Any, config: Any | None = None) -> AIMessage:
         client = self._get_client()
         from google.genai import errors, types
 
@@ -227,8 +238,8 @@ class GeminiCoderAdapter(Runnable):
                 gemini_tools.append(types.Tool(function_declarations=function_declarations))
 
         # 2. Convert messages to Gemini Content objects preserving thought signatures
-        system_instruction: Optional[str] = None
-        contents: List[types.Content] = []
+        system_instruction: str | None = None
+        contents: list[types.Content] = []
 
         if isinstance(input, str):
             raw_messages = [HumanMessage(content=input)]
@@ -252,7 +263,7 @@ class GeminiCoderAdapter(Runnable):
                 )
 
             elif isinstance(msg, AIMessage):
-                parts: List[types.Part] = []
+                parts: list[types.Part] = []
                 if msg.content:
                     parts.append(types.Part.from_text(text=str(msg.content)))
 
@@ -320,8 +331,8 @@ class GeminiCoderAdapter(Runnable):
                     )
 
                     # Extract tool calls and thought signatures
-                    tool_calls_out: List[Dict[str, Any]] = []
-                    saved_signatures: Dict[str, bytes] = {}
+                    tool_calls_out: list[dict[str, Any]] = []
+                    saved_signatures: dict[str, bytes] = {}
                     text_content = ""
 
                     cand = response.candidates[0] if response.candidates else None
@@ -353,12 +364,22 @@ class GeminiCoderAdapter(Runnable):
                     if err.code == 429 or "RESOURCE_EXHAUSTED" in err_str:
                         delay = _extract_retry_delay(err_str)
                         if delay is None:
-                            logger.warning("[RateLimit] Daily quota reached for %s. Falling back to next model...", current_model)
-                            print(f"[*] Daily quota reached for {current_model}. Switching to alternative model...", flush=True)
+                            logger.warning(
+                                "[RateLimit] Daily quota reached for %s. Falling back to next model...", current_model
+                            )
+                            print(
+                                f"[*] Daily quota reached for {current_model}. Switching to alternative model...",
+                                flush=True,
+                            )
                             break
                         else:
-                            logger.warning("[RateLimit] 429 received in Coder (%s). Pausing for %.1fs...", current_model, delay)
-                            print(f"[*] Rate limit (429) on {current_model}. Waiting {delay:.1f}s before retry...", flush=True)
+                            logger.warning(
+                                "[RateLimit] 429 received in Coder (%s). Pausing for %.1fs...", current_model, delay
+                            )
+                            print(
+                                f"[*] Rate limit (429) on {current_model}. Waiting {delay:.1f}s before retry...",
+                                flush=True,
+                            )
                             time.sleep(delay)
                             continue
                     raise err
@@ -370,12 +391,13 @@ class GeminiCoderAdapter(Runnable):
         raise RuntimeError("Coder LLM invocation failed after maximum retries.")
 
 
-def get_architect_llms(config: Optional[AppConfig] = None) -> Dict[str, Any]:
+def get_architect_llms(config: AppConfig | None = None) -> dict[str, Any]:
     """Provides consultant and planner models based on active runtime configuration."""
     cfg = config or get_config()
 
     if cfg.mode == "simulation":
         from tests.fakes import FakeArchitectStructured
+
         sim = FakeArchitectStructured()
         return {"consultant": sim, "planner": sim}
 
@@ -398,6 +420,7 @@ def get_architect_llms(config: Optional[AppConfig] = None) -> Dict[str, Any]:
 
     # Vertex AI legacy fallback
     from langchain_google_vertexai import ChatVertexAI
+
     project = cfg.gcp_project_id or os.getenv("GCP_PROJECT_ID")
     if not project:
         raise ValueError("GCP_PROJECT_ID is required for 'vertex' mode.")
@@ -419,12 +442,13 @@ def get_architect_llms(config: Optional[AppConfig] = None) -> Dict[str, Any]:
     return {"consultant": consultant_llm, "planner": planner_llm}
 
 
-def get_coder_llm(config: Optional[AppConfig] = None) -> Any:
+def get_coder_llm(config: AppConfig | None = None) -> Any:
     """Provides coder model bound to filesystem/system tools."""
     cfg = config or get_config()
 
     if cfg.mode == "simulation":
         from tests.fakes import FakeCoderLLM
+
         return FakeCoderLLM()
 
     elif cfg.mode == "gemini-free":
@@ -439,6 +463,7 @@ def get_coder_llm(config: Optional[AppConfig] = None) -> Any:
         )
 
     from langchain_google_vertexai import ChatVertexAI
+
     project = cfg.gcp_project_id or os.getenv("GCP_PROJECT_ID")
     if not project:
         raise ValueError("GCP_PROJECT_ID is required for 'vertex' mode.")

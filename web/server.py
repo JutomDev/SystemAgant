@@ -13,14 +13,11 @@ import ast
 import json
 import logging
 import os
-from pathlib import Path
 import re
-from typing import Any, Dict, List, Optional
-from uuid import uuid4
+from pathlib import Path
+from typing import Any
 
-logger = logging.getLogger(__name__)
-
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -28,14 +25,27 @@ from pydantic import BaseModel
 from core.config import AppConfig, get_config
 from core.llm_factory import get_architect_llms, get_coder_llm
 from core.models import ArchitectOutput, AtomicTask, Epic
+from core.repo_map import generate_task_scoped_repo_map
 from core.tools.asset_tools import validate_and_repair_html_images
-from core.repo_map import generate_repo_map, generate_task_scoped_repo_map
+
+logger = logging.getLogger(__name__)
 
 WEB_DIR = Path(__file__).resolve().parent
 
 IGNORED_DIRS = {
-    ".venv", "venv", "node_modules", "__pycache__", ".git", "dist", "build",
-    ".systemagant", ".pytest_cache", ".benchmarks", ".cache", ".idea", ".vscode"
+    ".venv",
+    "venv",
+    "node_modules",
+    "__pycache__",
+    ".git",
+    "dist",
+    "build",
+    ".systemagant",
+    ".pytest_cache",
+    ".benchmarks",
+    ".cache",
+    ".idea",
+    ".vscode",
 }
 IGNORED_EXTENSIONS = {".db", ".sqlite", ".sqlite3", ".log", ".pyc", ".tmp"}
 
@@ -51,34 +61,33 @@ def is_project_file(p: Path) -> bool:
     return True
 
 
-def scan_workspace_files(workspace_path: Path) -> List[Dict[str, Any]]:
+def scan_workspace_files(workspace_path: Path) -> list[dict[str, Any]]:
     """Scans and returns all project files, sorting index.html and HTML files first."""
-    files: List[Dict[str, Any]] = []
+    files: list[dict[str, Any]] = []
     if not workspace_path.exists():
         return files
     for p in workspace_path.rglob("*"):
         if is_project_file(p):
             rel_name = str(p.relative_to(workspace_path)).replace("\\", "/")
             files.append({"name": rel_name, "size": p.stat().st_size})
-    files.sort(key=lambda x: (
-        0 if x["name"] == "index.html" else (1 if x["name"].endswith(".html") else 2),
-        x["name"].lower()
-    ))
+    files.sort(
+        key=lambda x: (0 if x["name"] == "index.html" else (1 if x["name"].endswith(".html") else 2), x["name"].lower())
+    )
     return files
 
 
-def serialize_wbs(wbs_raw: Any) -> List[Dict[str, Any]]:
+def serialize_wbs(wbs_raw: Any) -> list[dict[str, Any]]:
     """Normalizes WBS data models into plain JSON-serializable dictionaries."""
     if not wbs_raw:
         return []
-    clean_wbs: List[Dict[str, Any]] = []
+    clean_wbs: list[dict[str, Any]] = []
     for item in wbs_raw:
         if hasattr(item, "model_dump"):
             clean_wbs.append(item.model_dump())
         elif isinstance(item, dict):
             clean_epic = dict(item)
             if "tasks" in clean_epic:
-                clean_tasks: List[Dict[str, Any]] = []
+                clean_tasks: list[dict[str, Any]] = []
                 for t in clean_epic["tasks"]:
                     if hasattr(t, "model_dump"):
                         clean_tasks.append(t.model_dump())
@@ -89,44 +98,48 @@ def serialize_wbs(wbs_raw: Any) -> List[Dict[str, Any]]:
     return clean_wbs
 
 
-def serialize_logs(logs_raw: Any) -> List[Dict[str, Any]]:
+def serialize_logs(logs_raw: Any) -> list[dict[str, Any]]:
     """Normalizes execution logs into plain dictionaries."""
     if not logs_raw:
         return []
-    clean_logs: List[Dict[str, Any]] = []
-    for l in logs_raw:
-        if hasattr(l, "model_dump"):
-            clean_logs.append(l.model_dump())
-        elif isinstance(l, dict):
-            clean_logs.append(dict(l))
+    clean_logs: list[dict[str, Any]] = []
+    for log_item in logs_raw:
+        if hasattr(log_item, "model_dump"):
+            clean_logs.append(log_item.model_dump())
+        elif isinstance(log_item, dict):
+            clean_logs.append(dict(log_item))
         else:
-            clean_logs.append({"node": "system", "content": str(l), "timestamp": 1})
+            clean_logs.append({"node": "system", "content": str(log_item), "timestamp": 1})
     return clean_logs
 
 
-def convert_langgraph_messages_to_ui(raw_messages: List[Any], wbs: List[Any]) -> List[Dict[str, Any]]:
+def convert_langgraph_messages_to_ui(raw_messages: list[Any], wbs: list[Any]) -> list[dict[str, Any]]:
     """Translates LangGraph BaseMessage objects from SQLite checkpoints into UI chat messages."""
-    ui_messages: List[Dict[str, Any]] = []
+    ui_messages: list[dict[str, Any]] = []
     for i, m in enumerate(raw_messages):
         author = type(m).__name__
         text = str(getattr(m, "content", ""))
         if author == "HumanMessage":
-            ui_messages.append({
-                "id": f"msg_{i}",
-                "sender": "user",
-                "title": "User",
-                "text": text,
-                "type": "user",
-            })
+            ui_messages.append(
+                {
+                    "id": f"msg_{i}",
+                    "sender": "user",
+                    "title": "User",
+                    "text": text,
+                    "type": "user",
+                }
+            )
         elif author == "ToolMessage":
             tool_name = getattr(m, "name", "sandbox")
-            ui_messages.append({
-                "id": f"msg_{i}",
-                "sender": "tester",
-                "title": f"Tool: {tool_name}",
-                "text": text,
-                "type": "tester",
-            })
+            ui_messages.append(
+                {
+                    "id": f"msg_{i}",
+                    "sender": "tester",
+                    "title": f"Tool: {tool_name}",
+                    "text": text,
+                    "type": "tester",
+                }
+            )
         else:
             # AIMessage or generic assistant turn
             title = "Architect"
@@ -134,7 +147,12 @@ def convert_langgraph_messages_to_ui(raw_messages: List[Any], wbs: List[Any]) ->
             msg_type = "agent"
             has_wbs = False
             text_lower = text.lower()
-            if "coder" in text_lower or "implemented" in text_lower or text.strip().startswith("<!DOCTYPE") or "def " in text:
+            if (
+                "coder" in text_lower
+                or "implemented" in text_lower
+                or text.strip().startswith("<!DOCTYPE")
+                or "def " in text
+            ):
                 title = "Coder"
                 sender = "coder"
                 msg_type = "coder"
@@ -142,35 +160,44 @@ def convert_langgraph_messages_to_ui(raw_messages: List[Any], wbs: List[Any]) ->
                 title = "Tester"
                 sender = "tester"
                 msg_type = "tester"
-            elif "wbs" in text_lower or "epics" in text_lower or "atomic tasks" in text_lower or "architecture" in text_lower:
+            elif (
+                "wbs" in text_lower
+                or "epics" in text_lower
+                or "atomic tasks" in text_lower
+                or "architecture" in text_lower
+            ):
                 title = "Architect"
                 sender = "architect"
                 msg_type = "agent"
                 has_wbs = bool(wbs)
 
-            ui_messages.append({
-                "id": f"msg_{i}",
-                "sender": sender,
-                "title": title,
-                "text": text,
-                "type": msg_type,
-                "has_wbs": has_wbs,
-            })
+            ui_messages.append(
+                {
+                    "id": f"msg_{i}",
+                    "sender": sender,
+                    "title": title,
+                    "text": text,
+                    "type": msg_type,
+                    "has_wbs": has_wbs,
+                }
+            )
     return ui_messages
 
 
-def extract_state_from_db(workspace_path: Path, project_name: str) -> Optional[Dict[str, Any]]:
+def extract_state_from_db(workspace_path: Path, project_name: str) -> dict[str, Any] | None:
     """Extracts the latest checkpoint channel values from LangGraph SQLite checkpointer."""
     db_path = workspace_path / "state.db"
     if not db_path.is_file():
         return None
     try:
         from langgraph.checkpoint.sqlite import SqliteSaver
+
         thread_id = f"thread_{project_name}"
         with SqliteSaver.from_conn_string(str(db_path)) as cp:
             checkpoint = cp.get({"configurable": {"thread_id": thread_id}})
             if not checkpoint or "channel_values" not in checkpoint:
                 import sqlite3
+
                 con = sqlite3.connect(str(db_path))
                 row = con.execute("SELECT thread_id FROM checkpoints ORDER BY checkpoint_id DESC LIMIT 1").fetchone()
                 con.close()
@@ -194,12 +221,12 @@ app = FastAPI(
 
 class ChatRequest(BaseModel):
     message: str
-    project_name: Optional[str] = None
-    api_key: Optional[str] = None
+    project_name: str | None = None
+    api_key: str | None = None
 
 
 class ResetRequest(BaseModel):
-    project_name: Optional[str] = None
+    project_name: str | None = None
     purge_files: bool = True
 
 
@@ -208,7 +235,7 @@ class WorkspaceActionRequest(BaseModel):
 
 
 class DashboardSession:
-    def __init__(self, session_key: Optional[str] = None, project_name: str = "web_project"):
+    def __init__(self, session_key: str | None = None, project_name: str = "web_project"):
         self.config = get_config()
         self.session_key = session_key or self.config.gemini_api_key or os.getenv("GEMINI_API_KEY")
         self.set_project(project_name, load_existing=True)
@@ -237,10 +264,10 @@ class DashboardSession:
         self.active_node = "router"
         self.current_phase = "brainstorming"  # brainstorming -> approval -> execution -> completed
         self.iteration = 1
-        self.logs: List[Dict[str, Any]] = []
-        self.chat_messages: List[Dict[str, Any]] = []
-        self.wbs: List[Dict[str, Any]] = []
-        self.current_task_id: Optional[str] = None
+        self.logs: list[dict[str, Any]] = []
+        self.chat_messages: list[dict[str, Any]] = []
+        self.wbs: list[dict[str, Any]] = []
+        self.current_task_id: str | None = None
         self.awaiting_hitl = False
 
         self.chat_messages.append(
@@ -302,7 +329,7 @@ class DashboardSession:
                     self.current_task_id = db_cv.get("current_task_id")
                     self.iteration = int(db_cv.get("current_iteration", len(self.chat_messages)))
                     self.active_node = "router"
-                    self.awaiting_hitl = (self.current_phase == "approval")
+                    self.awaiting_hitl = self.current_phase == "approval"
                     self.save_state_to_disk()
                     return True
 
@@ -330,7 +357,7 @@ class DashboardSession:
             self.current_task_id = db_cv.get("current_task_id")
             self.iteration = int(db_cv.get("current_iteration", len(self.chat_messages)))
             self.active_node = "router"
-            self.awaiting_hitl = (self.current_phase == "approval")
+            self.awaiting_hitl = self.current_phase == "approval"
             self.save_state_to_disk()
             return True
 
@@ -346,28 +373,34 @@ class DashboardSession:
             # Synthesize initial WBS showing all existing component files
             epic_tasks = []
             for i, f in enumerate(existing_files):
-                epic_tasks.append({
-                    "task_id": f"TASK_RESUME_{i + 1}",
+                epic_tasks.append(
+                    {
+                        "task_id": f"TASK_RESUME_{i + 1}",
+                        "epic_id": "EPIC_DISCOVERED",
+                        "description": f"Verified existing component: '{f['name']}' ({f['size']} bytes).",
+                        "target_files": [f["name"]],
+                        "status": "completed",
+                    }
+                )
+            self.wbs = [
+                {
                     "epic_id": "EPIC_DISCOVERED",
-                    "description": f"Verified existing component: '{f['name']}' ({f['size']} bytes).",
-                    "target_files": [f["name"]],
-                    "status": "completed"
-                })
-            self.wbs = [{
-                "epic_id": "EPIC_DISCOVERED",
-                "description": f"Discovered existing codebase architecture ({len(existing_files)} component files)",
-                "tasks": epic_tasks
-            }]
+                    "description": f"Discovered existing codebase architecture ({len(existing_files)} component files)",
+                    "tasks": epic_tasks,
+                }
+            ]
 
             file_names = ", ".join(f["name"] for f in existing_files[:5])
             if len(existing_files) > 5:
                 file_names += f" and {len(existing_files) - 5} more"
 
-            self.logs = [{
-                "node": "router",
-                "content": f"Hydrated workspace '{self.project_name}' with {len(existing_files)} existing files: {file_names}.",
-                "timestamp": 1,
-            }]
+            self.logs = [
+                {
+                    "node": "router",
+                    "content": f"Hydrated workspace '{self.project_name}' with {len(existing_files)} existing files: {file_names}.",
+                    "timestamp": 1,
+                }
+            ]
             self.chat_messages = [
                 {
                     "id": "msg_0",
@@ -388,7 +421,7 @@ class DashboardSession:
 
         return False
 
-    def load_project(self, project_name: str) -> Dict[str, Any]:
+    def load_project(self, project_name: str) -> dict[str, Any]:
         clean = re.sub(r"[^a-zA-Z0-9_\-]", "_", project_name.strip()).strip("_") or "web_project"
         self.project_name = clean
         self.workspace_path = self.config.workspaces_dir / clean
@@ -398,7 +431,7 @@ class DashboardSession:
             self.save_state_to_disk()
         return self.get_full_state()
 
-    def create_new_project(self, project_name: str) -> Dict[str, Any]:
+    def create_new_project(self, project_name: str) -> dict[str, Any]:
         clean = re.sub(r"[^a-zA-Z0-9_\-]", "_", project_name.strip()).strip("_") or "web_project"
         self.project_name = clean
         self.workspace_path = self.config.workspaces_dir / clean
@@ -406,7 +439,6 @@ class DashboardSession:
         self.init_default_state(purge_files=True)
         self.save_state_to_disk()
         return self.get_full_state()
-
 
     def set_api_key(self, key: str) -> None:
         """Sets temporary in-memory session key without persisting to disk."""
@@ -423,7 +455,9 @@ class DashboardSession:
             gemini_model=self.config.gemini_model,
         )
 
-    def process_chat(self, user_text: str, session_key: Optional[str] = None, project_name: Optional[str] = None) -> Dict[str, Any]:
+    def process_chat(
+        self, user_text: str, session_key: str | None = None, project_name: str | None = None
+    ) -> dict[str, Any]:
         """Processes user input through the multi-agent state lifecycle."""
         user_clean = user_text.strip()
         if session_key:
@@ -469,7 +503,7 @@ class DashboardSession:
                 )
                 try:
                     structured_res = structured_planner.invoke(architect_prompt)
-                except Exception as e:
+                except Exception:
                     # Fallback to local structured plan if API fails
                     structured_res = ArchitectOutput(
                         response=f"Architect analyzed requirements: {user_clean}. WBS synthesized.",
@@ -618,7 +652,9 @@ class DashboardSession:
                     ],
                 }
                 self.wbs.append(new_epic)
-                reply_text = f"Analyzed follow-up requirement for existing codebase: '{user_clean}'. Planned incremental task."
+                reply_text = (
+                    f"Analyzed follow-up requirement for existing codebase: '{user_clean}'. Planned incremental task."
+                )
             else:
                 models = get_architect_llms(cfg)
                 structured_planner = models["planner"].with_structured_output(ArchitectOutput)
@@ -638,7 +674,9 @@ class DashboardSession:
                     reply_text = structured_res.response
                 except Exception as e:
                     logger.error("Architect incremental planning error: %s", e)
-                    reply_text = f"Follow-up requirement received: '{user_clean}'. Architecture ready for your approval."
+                    reply_text = (
+                        f"Follow-up requirement received: '{user_clean}'. Architecture ready for your approval."
+                    )
 
             self.current_phase = "approval"
             self.awaiting_hitl = True
@@ -700,11 +738,13 @@ class DashboardSession:
                 )
                 repo_context = f"\nExisting Repository Symbol Map:\n{repo_map}\n" if repo_map else ""
                 if repo_map:
-                    self.logs.append({
-                        "node": "coder",
-                        "content": f"Repository Map: Injected scoped symbols for {fname}.",
-                        "timestamp": self.iteration,
-                    })
+                    self.logs.append(
+                        {
+                            "node": "coder",
+                            "content": f"Repository Map: Injected scoped symbols for {fname}.",
+                            "timestamp": self.iteration,
+                        }
+                    )
                 coder_prompt = (
                     f"Task ID: {tid}\n"
                     f"Description: {desc}\n"
@@ -743,17 +783,21 @@ class DashboardSession:
             if fname.endswith(".py"):
                 try:
                     ast.parse(content)
-                    self.logs.append({
-                        "node": "tester",
-                        "content": f"AST Syntax Check: '{fname}' parsed successfully (Valid Python syntax).",
-                        "timestamp": self.iteration,
-                    })
+                    self.logs.append(
+                        {
+                            "node": "tester",
+                            "content": f"AST Syntax Check: '{fname}' parsed successfully (Valid Python syntax).",
+                            "timestamp": self.iteration,
+                        }
+                    )
                 except SyntaxError as syn_err:
-                    self.logs.append({
-                        "node": "tester",
-                        "content": f"AST Syntax Error in '{fname}': {syn_err}. Triggering self-healing repair...",
-                        "timestamp": self.iteration,
-                    })
+                    self.logs.append(
+                        {
+                            "node": "tester",
+                            "content": f"AST Syntax Error in '{fname}': {syn_err}. Triggering self-healing repair...",
+                            "timestamp": self.iteration,
+                        }
+                    )
                     if cfg.mode != "simulation":
                         repair_prompt = (
                             f"File: {fname}\n"
@@ -773,11 +817,13 @@ class DashboardSession:
                                 rep_code = "\n".join(lines).strip()
                             ast.parse(rep_code)
                             content = rep_code
-                            self.logs.append({
-                                "node": "tester",
-                                "content": f"Self-Healing: Auto-repair successfully resolved syntax error in '{fname}'.",
-                                "timestamp": self.iteration,
-                            })
+                            self.logs.append(
+                                {
+                                    "node": "tester",
+                                    "content": f"Self-Healing: Auto-repair successfully resolved syntax error in '{fname}'.",
+                                    "timestamp": self.iteration,
+                                }
+                            )
                         except Exception as re_err:
                             logger.error("Auto-repair error: %s", re_err)
 
@@ -851,7 +897,7 @@ class DashboardSession:
             }
         )
 
-    def reset(self, project_name: Optional[str] = None, purge_files: bool = True) -> None:
+    def reset(self, project_name: str | None = None, purge_files: bool = True) -> None:
         saved_mode = self.config.mode
         saved_key = self.session_key
         target_project = project_name or self.project_name
@@ -866,7 +912,7 @@ class DashboardSession:
             self.session_key = None
         self.save_state_to_disk()
 
-    def get_full_state(self) -> Dict[str, Any]:
+    def get_full_state(self) -> dict[str, Any]:
         total_tasks = 0
         completed_tasks = 0
         for epic in self.wbs:
@@ -875,7 +921,11 @@ class DashboardSession:
                 if t.get("status") == "completed":
                     completed_tasks += 1
 
-        progress = int((completed_tasks / total_tasks * 100)) if total_tasks > 0 else (100 if self.current_phase.lower() == "completed" else 0)
+        progress = (
+            int(completed_tasks / total_tasks * 100)
+            if total_tasks > 0
+            else (100 if self.current_phase.lower() == "completed" else 0)
+        )
 
         # Workspace file list (recursive relative paths, excluding internal state and junk)
         files = scan_workspace_files(self.workspace_path)
@@ -907,7 +957,7 @@ def serve_index() -> HTMLResponse:
     index_file = WEB_DIR / "index.html"
     if not index_file.is_file():
         raise HTTPException(status_code=404, detail="index.html not found")
-    with open(index_file, "r", encoding="utf-8") as f:
+    with open(index_file, encoding="utf-8") as f:
         return HTMLResponse(content=f.read())
 
 
@@ -917,14 +967,14 @@ def get_state() -> JSONResponse:
 
 
 @app.post("/api/chat")
-def post_chat(req: ChatRequest, x_gemini_key: Optional[str] = Header(None)) -> JSONResponse:
+def post_chat(req: ChatRequest, x_gemini_key: str | None = Header(None)) -> JSONResponse:
     key = req.api_key or x_gemini_key
     state = _session.process_chat(req.message, session_key=key, project_name=req.project_name)
     return JSONResponse(content=state)
 
 
 @app.post("/api/reset")
-def post_reset(req: Optional[ResetRequest] = None) -> JSONResponse:
+def post_reset(req: ResetRequest | None = None) -> JSONResponse:
     pname = req.project_name if req else None
     purge = req.purge_files if req is not None else True
     _session.reset(project_name=pname, purge_files=purge)
@@ -950,13 +1000,15 @@ def list_workspaces() -> JSONResponse:
                         pass
                 elif has_db or files:
                     phase = "COMPLETED"
-                result.append({
-                    "name": d.name,
-                    "file_count": len(files),
-                    "has_session": has_session or has_db,
-                    "phase": phase,
-                    "is_active": (d.name == _session.project_name),
-                })
+                result.append(
+                    {
+                        "name": d.name,
+                        "file_count": len(files),
+                        "has_session": has_session or has_db,
+                        "phase": phase,
+                        "is_active": (d.name == _session.project_name),
+                    }
+                )
     return JSONResponse(content={"workspaces": result, "active_workspace": _session.project_name})
 
 
@@ -986,16 +1038,16 @@ def get_file_content(path: str = Query(...)) -> PlainTextResponse:
         base = _session.workspace_path.resolve()
         if not str(target).startswith(str(base)) or not target.is_file():
             raise HTTPException(status_code=404, detail=f"File {path} not found")
-        with open(target, "r", encoding="utf-8") as f:
+        with open(target, encoding="utf-8") as f:
             return PlainTextResponse(content=f.read())
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @app.get("/api/workspace/preview")
-def preview_workspace(file: Optional[str] = None) -> HTMLResponse:
+def preview_workspace(file: str | None = None) -> HTMLResponse:
     files = scan_workspace_files(_session.workspace_path)
     html_files = [f["name"] for f in files if f["name"].endswith(".html")]
 
@@ -1012,12 +1064,12 @@ def preview_workspace(file: Optional[str] = None) -> HTMLResponse:
             target = (_session.workspace_path / clean_path).resolve()
             base = _session.workspace_path.resolve()
             if str(target).startswith(str(base)) and target.is_file():
-                with open(target, "r", encoding="utf-8") as f:
+                with open(target, encoding="utf-8") as f:
                     html_code = f.read()
 
                 style_file = _session.workspace_path / "style.css"
                 if style_file.is_file():
-                    with open(style_file, "r", encoding="utf-8") as sf:
+                    with open(style_file, encoding="utf-8") as sf:
                         css_code = sf.read()
                     if "</head>" in html_code:
                         html_code = html_code.replace("</head>", f"<style>{css_code}</style></head>")
@@ -1066,5 +1118,5 @@ app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
 def start_server(host: str = "127.0.0.1", port: int = 8000) -> None:
     """Launches the tactile dashboard server."""
     import uvicorn
-    uvicorn.run(app, host=host, port=port)
 
+    uvicorn.run(app, host=host, port=port)

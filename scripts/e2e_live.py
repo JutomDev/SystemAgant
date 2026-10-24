@@ -11,7 +11,6 @@ Records execution telemetry and results to docs/e2e_runs.md.
 
 from __future__ import annotations
 
-import os
 import sys
 import time
 from pathlib import Path
@@ -20,8 +19,8 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT_DIR))
 
-from core.config import AppConfig, get_config
-from web.server import DashboardSession
+from core.config import get_config  # noqa: E402
+from web.server import DashboardSession  # noqa: E402
 
 PROMPTS = [
     {
@@ -111,7 +110,9 @@ def run_e2e_test_suite() -> None:
         rf.write("# Empirical E2E Verification Report\n\n")
         rf.write(f"**Execution Timestamp:** {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}  \n")
         rf.write(f"**Engine:** Google AI Studio `{cfg.gemini_model}` (Free Tier)  \n")
-        rf.write(f"**Total Runs:** {len(reports)} | **Passed:** {sum(1 for r in reports if r['status'] == 'PASS')} | **Failed:** {sum(1 for r in reports if r['status'] == 'FAIL')}\n\n")
+        rf.write(
+            f"**Total Runs:** {len(reports)} | **Passed:** {sum(1 for r in reports if r['status'] == 'PASS')} | **Failed:** {sum(1 for r in reports if r['status'] == 'FAIL')}\n\n"
+        )
         rf.write("---\n\n")
 
         rf.write("## Test Cases Summary\n\n")
@@ -120,14 +121,16 @@ def run_e2e_test_suite() -> None:
         for r in reports:
             files_str = ", ".join(r["files"][:3])
             if len(r["files"]) > 3:
-                files_str += f" (+{len(r['files'])-3})"
-            rf.write(f"| `{r['id']}` | {r['title']} | {r['tasks_count']} | `{files_str}` | {r['duration_sec']}s | **{r['status']}** |\n")
+                files_str += f" (+{len(r['files']) - 3})"
+            rf.write(
+                f"| `{r['id']}` | {r['title']} | {r['tasks_count']} | `{files_str}` | {r['duration_sec']}s | **{r['status']}** |\n"
+            )
 
         rf.write("\n---\n\n")
         rf.write("## Detailed Run Logs\n\n")
         for r in reports:
             rf.write(f"### {r['id']} — {r['title']}\n")
-            rf.write(f"- **Prompt:** \"{r['prompt']}\"\n")
+            rf.write(f'- **Prompt:** "{r["prompt"]}"\n')
             rf.write(f"- **Status:** `{r['status']}` ({r['duration_sec']}s)\n")
             rf.write(f"- **Epics:** {r['epics_count']} | **Tasks:** {r['tasks_count']}\n")
             rf.write(f"- **Files Produced:** {r['files']}\n\n")

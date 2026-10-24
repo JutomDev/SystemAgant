@@ -3,9 +3,11 @@
 These deterministic mock runnables allow offline testing with 0 tokens and no API dependencies.
 """
 
-from typing import Any, List, Optional
+from typing import Any
+
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
+
 from core.models import ArchitectOutput, AtomicTask, Epic
 
 
@@ -19,7 +21,7 @@ class FakeArchitectStructured(Runnable):
     def with_structured_output(self, schema: Any) -> "FakeArchitectStructured":
         return FakeArchitectStructured(target_schema=schema)
 
-    def invoke(self, input: Any, config: Optional[Any] = None) -> Any:
+    def invoke(self, input: Any, config: Any | None = None) -> Any:
         return ArchitectOutput(
             response="Architecture strategy verified. WBS synthesized.",
             wbs=[
@@ -52,14 +54,14 @@ class FakeCoderLLM(Runnable):
 
     def __init__(self) -> None:
         super().__init__()
-        self.tools: List[Any] = []
+        self.tools: list[Any] = []
 
-    def bind_tools(self, tools: List[Any], **kwargs: Any) -> "FakeCoderLLM":
+    def bind_tools(self, tools: list[Any], **kwargs: Any) -> "FakeCoderLLM":
         clone = FakeCoderLLM()
         clone.tools = tools
         return clone
 
-    def invoke(self, input: Any, config: Optional[Any] = None) -> AIMessage:
+    def invoke(self, input: Any, config: Any | None = None) -> AIMessage:
         return AIMessage(
             content="Creating index.html file",
             tool_calls=[

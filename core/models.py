@@ -6,17 +6,14 @@ Defines Pydantic v2 models for:
 3. Sandboxed subprocess telemetry logs (ExecutionLog).
 """
 
-from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
 class ArchitectOutput(BaseModel):
     """Structured response schema returned by the Architect planning node."""
 
-    response: str = Field(
-        description="Conversational or technical response from the Architect to the user."
-    )
-    wbs: Optional[List["Epic"]] = Field(
+    response: str = Field(description="Conversational or technical response from the Architect to the user.")
+    wbs: list["Epic"] | None = Field(
         default=None,
         description="Synthesized hierarchical Work Breakdown Structure containing Epics and Atomic Tasks.",
     )
@@ -48,7 +45,7 @@ class AtomicTask(BaseModel):
     task_id: str = Field(description="Deterministic task identifier, e.g., 'TASK_1_1'.")
     epic_id: str = Field(description="Parent Epic identifier to which this task belongs.")
     description: str = Field(description="Actionable technical description of changes required.")
-    target_files: List[str] = Field(description="List of file paths modified or created by this task.")
+    target_files: list[str] = Field(description="List of file paths modified or created by this task.")
     status: str = Field(
         default="pending",
         description="Lifecycle state: 'pending', 'in_progress', 'completed', or 'failed'.",
@@ -60,4 +57,4 @@ class Epic(BaseModel):
 
     epic_id: str = Field(description="Deterministic epic identifier, e.g., 'EPIC_1'.")
     description: str = Field(description="Milestone summary describing the subsystem being delivered.")
-    tasks: List[AtomicTask] = Field(description="Ordered sequence of atomic implementation tasks.")
+    tasks: list[AtomicTask] = Field(description="Ordered sequence of atomic implementation tasks.")

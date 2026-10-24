@@ -1,7 +1,6 @@
 """Unit tests for configuration and simulation LLM factory."""
 
-import pytest
-from core.config import get_config, AppConfig
+from core.config import AppConfig, get_config
 from core.llm_factory import get_architect_llms, get_coder_llm
 from core.models import ArchitectOutput
 

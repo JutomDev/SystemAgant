@@ -1,8 +1,8 @@
 """Integration tests for Workspace Persistence, Resumption, and Post-Completion Iteration."""
 
-from pathlib import Path
 from fastapi.testclient import TestClient
-from web.server import app, _session
+
+from web.server import _session, app
 
 client = TestClient(app)
 
@@ -72,7 +72,7 @@ def test_load_existing_files_workspace_and_preview():
     data = load_res.json()
     assert data["project_name"] == "run_01_botanical_shop"
     assert data["current_phase"] == "COMPLETED"
-    
+
     # Verify files
     file_names = [f["name"] for f in data["files"]]
     assert "index.html" in file_names
@@ -93,7 +93,7 @@ def test_load_statedb_checkpoint_workspace():
     assert load_res.status_code == 200
     data = load_res.json()
     assert data["project_name"] == "Web_shop"
-    
+
     # Must have recovered all past messages from LangGraph checkpoints
     assert len(data["chat_messages"]) >= 30
     assert data["chat_messages"][0]["sender"] == "user"
@@ -105,4 +105,3 @@ def test_load_statedb_checkpoint_workspace():
     prev_res = client.get("/api/workspace/preview")
     assert prev_res.status_code == 200
     assert "NON-HTML WORKSPACE DETECTED" in prev_res.text
-

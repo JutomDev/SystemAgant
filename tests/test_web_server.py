@@ -1,7 +1,8 @@
 """Integration tests for Tactile Dashboard API endpoints."""
 
 from fastapi.testclient import TestClient
-from web.server import app, _session
+
+from web.server import _session, app
 
 client = TestClient(app)
 

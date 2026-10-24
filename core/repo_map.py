@@ -5,15 +5,15 @@ repository maps. Generates high-density, low-token architectural summaries
 of multi-file projects to preserve cross-file consistency in multi-script tasks.
 """
 
-from pathlib import Path
 import ast
 import re
-from typing import List, Dict, Any
+from pathlib import Path
+from typing import Any
 
 
-def parse_python_symbols(content: str) -> Dict[str, Any]:
+def parse_python_symbols(content: str) -> dict[str, Any]:
     """Extracts classes, methods, functions, and imports using Python's native AST."""
-    symbols: Dict[str, Any] = {
+    symbols: dict[str, Any] = {
         "imports": [],
         "classes": [],
         "functions": [],
@@ -36,22 +36,24 @@ def parse_python_symbols(content: str) -> Dict[str, Any]:
             symbols["functions"].append(f"def {node.name}({', '.join(args[:4])})")
         elif isinstance(node, ast.ClassDef):
             bases = [b.id for b in node.bases if isinstance(b, ast.Name)]
-            methods: List[str] = []
+            methods: list[str] = []
             for item in node.body:
                 if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef)):
                     m_args = [a.arg for a in item.args.args if a.arg != "self"]
                     methods.append(f"{item.name}({', '.join(m_args[:3])})")
             base_str = f"({', '.join(bases)})" if bases else ""
-            symbols["classes"].append({
-                "name": f"{node.name}{base_str}",
-                "methods": methods[:5],
-            })
+            symbols["classes"].append(
+                {
+                    "name": f"{node.name}{base_str}",
+                    "methods": methods[:5],
+                }
+            )
     return symbols
 
 
-def parse_js_symbols(content: str) -> Dict[str, Any]:
+def parse_js_symbols(content: str) -> dict[str, Any]:
     """Extracts functions, classes, and exported symbols using lightweight regex."""
-    symbols: Dict[str, Any] = {"imports": [], "exports": [], "functions": []}
+    symbols: dict[str, Any] = {"imports": [], "exports": [], "functions": []}
     for line in content.splitlines():
         line = line.strip()
         if not line or line.startswith("//"):
@@ -70,9 +72,9 @@ def parse_js_symbols(content: str) -> Dict[str, Any]:
     return symbols
 
 
-def parse_html_symbols(content: str) -> Dict[str, Any]:
+def parse_html_symbols(content: str) -> dict[str, Any]:
     """Extracts linked stylesheets, scripts, and key semantic section IDs."""
-    symbols: Dict[str, Any] = {
+    symbols: dict[str, Any] = {
         "title": "",
         "stylesheets": [],
         "scripts": [],
@@ -88,7 +90,9 @@ def parse_html_symbols(content: str) -> Dict[str, Any]:
     for script in re.finditer(r'<script[^>]+src=["\']([^"\']+)["\']', content, re.IGNORECASE):
         symbols["scripts"].append(script.group(1))
 
-    for sec in re.finditer(r'<(?:section|div|header|footer|nav|main)[^>]+id=["\']([^"\']+)["\']', content, re.IGNORECASE):
+    for sec in re.finditer(
+        r'<(?:section|div|header|footer|nav|main)[^>]+id=["\']([^"\']+)["\']', content, re.IGNORECASE
+    ):
         symbols["sections"].append(f"#{sec.group(1)}")
 
     return symbols
@@ -99,11 +103,14 @@ def generate_repo_map(workspace_dir: Path, max_files: int = 20) -> str:
     if not workspace_dir.exists() or not workspace_dir.is_dir():
         return ""
 
-    lines: List[str] = []
-    files = sorted([
-        p for p in workspace_dir.rglob("*")
-        if p.is_file() and not p.name.startswith(".") and "__pycache__" not in p.parts
-    ])[:max_files]
+    lines: list[str] = []
+    files = sorted(
+        [
+            p
+            for p in workspace_dir.rglob("*")
+            if p.is_file() and not p.name.startswith(".") and "__pycache__" not in p.parts
+        ]
+    )[:max_files]
 
     if not files:
         return ""
@@ -118,7 +125,7 @@ def generate_repo_map(workspace_dir: Path, max_files: int = 20) -> str:
         ext = f.suffix.lower()
         if ext == ".py":
             py_sym = parse_python_symbols(content)
-            summary: List[str] = []
+            summary: list[str] = []
             if py_sym["classes"]:
                 for c in py_sym["classes"][:3]:
                     m_str = f" [{', '.join(c['methods'][:3])}]" if c["methods"] else ""
@@ -133,7 +140,7 @@ def generate_repo_map(workspace_dir: Path, max_files: int = 20) -> str:
 
         elif ext in (".js", ".ts"):
             js_sym = parse_js_symbols(content)
-            summary_js: List[str] = []
+            summary_js: list[str] = []
             if js_sym["exports"]:
                 summary_js.extend(js_sym["exports"][:3])
             if js_sym["functions"]:
@@ -144,7 +151,7 @@ def generate_repo_map(workspace_dir: Path, max_files: int = 20) -> str:
 
         elif ext in (".html", ".htm"):
             html_sym = parse_html_symbols(content)
-            summary_html: List[str] = []
+            summary_html: list[str] = []
             if html_sym["title"]:
                 summary_html.append(f'title: "{html_sym["title"][:40]}"')
             if html_sym["stylesheets"] or html_sym["scripts"]:
@@ -179,10 +186,13 @@ def generate_task_scoped_repo_map(
     if not workspace_dir.exists() or not workspace_dir.is_dir():
         return ""
 
-    all_files = sorted([
-        p for p in workspace_dir.rglob("*")
-        if p.is_file() and not p.name.startswith(".") and "__pycache__" not in p.parts
-    ])
+    all_files = sorted(
+        [
+            p
+            for p in workspace_dir.rglob("*")
+            if p.is_file() and not p.name.startswith(".") and "__pycache__" not in p.parts
+        ]
+    )
     if not all_files:
         return ""
 
@@ -190,7 +200,7 @@ def generate_task_scoped_repo_map(
         return generate_repo_map(workspace_dir, max_files=max_files)
 
     # Score candidates for task relevance
-    scores: List[tuple[int, Path]] = []
+    scores: list[tuple[int, Path]] = []
     t_stem = Path(target_file).stem.lower() if target_file else ""
     t_name = Path(target_file).name.lower() if target_file else ""
     desc_words = {w.lower() for w in re.findall(r"\w{4,}", task_description)}
@@ -223,7 +233,7 @@ def generate_task_scoped_repo_map(
     selected_files = [f for _, f in scores[:max_files]]
 
     # Generate map for selected subset
-    lines: List[str] = []
+    lines: list[str] = []
     for f in sorted(selected_files, key=lambda p: p.as_posix()):
         rel = f.relative_to(workspace_dir).as_posix()
         try:
@@ -234,7 +244,7 @@ def generate_task_scoped_repo_map(
         ext = f.suffix.lower()
         if ext == ".py":
             py_sym = parse_python_symbols(content)
-            summary: List[str] = []
+            summary: list[str] = []
             if py_sym["classes"]:
                 for c in py_sym["classes"][:3]:
                     m_str = f" [{', '.join(c['methods'][:3])}]" if c["methods"] else ""
@@ -248,7 +258,7 @@ def generate_task_scoped_repo_map(
                 lines.append(f"  {s}")
         elif ext in (".js", ".ts"):
             js_sym = parse_js_symbols(content)
-            summary_js: List[str] = []
+            summary_js: list[str] = []
             if js_sym["exports"]:
                 summary_js.extend(js_sym["exports"][:3])
             if js_sym["functions"]:
@@ -258,7 +268,7 @@ def generate_task_scoped_repo_map(
                 lines.append(f"  {s}")
         elif ext in (".html", ".htm"):
             html_sym = parse_html_symbols(content)
-            summary_html: List[str] = []
+            summary_html: list[str] = []
             if html_sym["title"]:
                 summary_html.append(f'title: "{html_sym["title"][:40]}"')
             if html_sym["stylesheets"] or html_sym["scripts"]:

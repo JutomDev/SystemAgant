@@ -1,12 +1,13 @@
 """Unit tests for the AST repository map generator."""
 
 from pathlib import Path
+
 from core.repo_map import (
-    parse_python_symbols,
-    parse_js_symbols,
-    parse_html_symbols,
     generate_repo_map,
     generate_task_scoped_repo_map,
+    parse_html_symbols,
+    parse_js_symbols,
+    parse_python_symbols,
 )
 
 
@@ -93,7 +94,7 @@ def test_generate_task_scoped_repo_map(tmp_path: Path):
     # Create 12 dummy files
     for i in range(12):
         (tmp_path / f"service_{i}.py").write_text(f"def action_{i}(): pass\n", encoding="utf-8")
-    
+
     (tmp_path / "target_catalog.py").write_text("class CatalogModel: pass\n", encoding="utf-8")
     (tmp_path / "catalog_view.py").write_text("import target_catalog\ndef render(): pass\n", encoding="utf-8")
 

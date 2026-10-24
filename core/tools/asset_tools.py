@@ -7,9 +7,9 @@ and provides graceful inline SVG placeholding for broken or offline links.
 from __future__ import annotations
 
 import re
-from pathlib import Path
-from typing import List, Tuple
 import urllib.parse
+from pathlib import Path
+
 import httpx
 
 SVG_PLACEHOLDER = """<svg xmlns="http://www.w3.org/2000/svg" width="600" height="400" viewBox="0 0 600 400">
@@ -20,14 +20,14 @@ SVG_PLACEHOLDER = """<svg xmlns="http://www.w3.org/2000/svg" width="600" height=
 </svg>"""
 
 
-def validate_and_repair_html_images(html_content: str, workspace_path: Path) -> Tuple[str, List[str]]:
+def validate_and_repair_html_images(html_content: str, workspace_path: Path) -> tuple[str, list[str]]:
     """Inspects all <img> tags in html_content.
-    
+
     Verifies HTTP links via HEAD request. If a link fails or returns >=400,
     replaces it with an inline SVG placeholder to guarantee zero broken images.
     """
     img_pattern = re.compile(r'<img\s+([^>]*?)src=["\'](.*?)["\']([^>]*?)>', re.IGNORECASE)
-    repaired_log: List[str] = []
+    repaired_log: list[str] = []
 
     def _replace_img(match: re.Match) -> str:
         prefix = match.group(1)
@@ -40,7 +40,7 @@ def validate_and_repair_html_images(html_content: str, workspace_path: Path) -> 
         # Skip already-embedded data URIs or local existing files
         if src.startswith("data:image"):
             return match.group(0)
-        
+
         if not src.startswith("http://") and not src.startswith("https://"):
             local_file = workspace_path / src
             if local_file.exists():

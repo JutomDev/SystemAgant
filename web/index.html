@@ -46,7 +46,10 @@
     <!-- LEFT COLUMN: INTERACTIVE CHAT & HITL CONTROLS -->
     <section class="panel chat-panel" id="panel-chat">
       <div class="panel-header" style="display: flex; justify-content: space-between; align-items: center;">
-        <span class="panel-title">// CONVERSATION RACK</span>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span class="panel-title">// CONVERSATION RACK</span>
+          <span id="chat-status-meta" style="color: var(--accent-amber); font-size: 10px; font-weight: 700;">STATUS: IDLE</span>
+        </div>
         <div style="display: flex; align-items: center; gap: 6px;">
           <span style="color: var(--text-dim); font-size: 10px;">WORKSPACE:</span>
           <select id="select-workspace" style="background:#14181f;color:var(--accent-amber);border:1px solid var(--border-color);font-family:monospace;font-size:11px;padding:2px 6px;border-radius:2px;max-width:180px;" title="Switch between saved workspaces">
@@ -218,6 +221,6 @@
     </div>
   </footer>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=2.2.1"></script>
 </body>
 </html>

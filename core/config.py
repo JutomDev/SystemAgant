@@ -3,9 +3,10 @@
 Adheres to explicit typing, Pydantic v2 validation, and zero hardcoded secrets.
 """
 
-from typing import Literal, Optional
-from pathlib import Path
 import os
+from pathlib import Path
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -16,7 +17,7 @@ class AppConfig(BaseModel):
         default="gemini-free",
         description="Execution mode: 'gemini-free' (Google AI Studio API key), 'simulation' (test mock only), or 'vertex' (GCP project).",
     )
-    gemini_api_key: Optional[str] = Field(
+    gemini_api_key: str | None = Field(
         default=None,
         description="Google AI Studio Gemini API Key for free tier execution.",
     )
@@ -24,7 +25,7 @@ class AppConfig(BaseModel):
         default="gemini-flash-lite-latest",
         description="Gemini Flash Lite model for high-speed free tier execution.",
     )
-    gcp_project_id: Optional[str] = Field(
+    gcp_project_id: str | None = Field(
         default=None,
         description="Optional GCP Project ID for legacy Vertex AI execution.",
     )
@@ -50,9 +51,9 @@ class AppConfig(BaseModel):
     )
 
 
-def load_env_file(env_path: Optional[Path] = None) -> None:
+def load_env_file(env_path: Path | None = None) -> None:
     """Zero-dependency .env file parser and environment populator.
-    
+
     Searches both explicitly provided path and the repository root relative
     to this file location to ensure deterministic discovery across CWD changes.
     """
@@ -63,7 +64,7 @@ def load_env_file(env_path: Optional[Path] = None) -> None:
     project_root = Path(__file__).resolve().parent.parent
     candidates.extend([Path(".env"), project_root / ".env"])
 
-    target_env: Optional[Path] = None
+    target_env: Path | None = None
     for cand in candidates:
         if cand.is_file():
             target_env = cand
@@ -72,7 +73,7 @@ def load_env_file(env_path: Optional[Path] = None) -> None:
     if target_env is None:
         return
 
-    with open(target_env, "r", encoding="utf-8") as f:
+    with open(target_env, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             # Skip comments and malformed empty lines
@@ -87,7 +88,7 @@ def load_env_file(env_path: Optional[Path] = None) -> None:
 
 def get_config() -> AppConfig:
     """Loads configuration with robust .env discovery and adaptive mode resolution.
-    
+
     Priority resolution:
     1. Explicit EXECUTION_MODE environment variable if valid.
     2. Auto-promote to 'gemini-free' if a GEMINI_API_KEY is detected in environment or .env.
