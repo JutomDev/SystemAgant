@@ -74,6 +74,8 @@ graph TD
    * Solved multi-turn tool calling errors (e.g., Vertex AI / Gemini 400 Bad Request caused by orphaned tool calls) by automatically repairing interrupted conversation turns prior to model invocation.
 4. **Offline Simulation Replay Engine:**
    * Allows anyone cloning the repository to run, inspect, and evaluate the entire multi-agent loop with **0 API cost and 0 configuration**.
+5. **Zero-Dependency AST Repository Mapping (`core/repo_map.py`):**
+   * Inspired by Tree-sitter and Aider repo map pipelines, the system extracts structural AST symbols (classes, methods, exports, functions, HTML IDs, and CSS variables) across multi-script workspaces. Injected into the Coder's prompt, this guarantees cross-file coherence in multi-page and multi-script projects at a fraction of the token cost of reading raw files.
 
 ---
 
@@ -152,6 +154,32 @@ python main.py --mode simulation
 cp .env.example .env
 python main.py --mode gemini-free
 ```
+
+### Where Generated Projects are Stored
+
+All autonomous agent outputs are safely sandboxed in isolated directories on your local filesystem:
+
+```text
+SystemAgant/
+└── workspaces/
+    ├── web_project/             # Default workspace
+    │   ├── index.html           # Generated web interface
+    │   ├── style.css            # Stylesheet & CSS variables
+    │   └── app.js               # Client logic / Canvas / scripts
+    └── <custom_project>/        # Custom workspace named via UI or CLI
+```
+
+* **Direct Browser Access:** Open any generated page directly in Chrome, Firefox, or Edge:
+  ```text
+  file:///path/to/SystemAgant/workspaces/web_project/index.html
+  ```
+* **Direct Editor Access:** Open the generated project in VS Code or your preferred IDE:
+  ```bash
+  code workspaces/web_project
+  ```
+* **Custom Workspace Naming:** In the web UI telemetry bar, edit the `WORKSPACE:` input (e.g., `WORKSPACE: [ flower_shop ]`). All subsequent code generations will be scoped strictly inside `workspaces/flower_shop/`.
+* **Multi-Page Navigation:** In the Tactile UI, use the **`// PAGE:`** dropdown to switch the live iframe preview between `index.html`, `catalog.html`, `contact.html`, or any other generated page.
+* **Git Hygiene:** The entire `workspaces/` directory is strictly excluded in `.gitignore` to prevent generated artifacts from polluting the core repository.
 
 ### Empirical E2E Verification Suite
 

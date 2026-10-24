@@ -29,6 +29,7 @@ from core.config import AppConfig, get_config
 from core.llm_factory import get_architect_llms, get_coder_llm
 from core.models import ArchitectOutput, AtomicTask, Epic
 from core.tools.asset_tools import validate_and_repair_html_images
+from core.repo_map import generate_repo_map
 
 WEB_DIR = Path(__file__).resolve().parent
 
@@ -314,11 +315,21 @@ class DashboardSession:
                 content = f"<!DOCTYPE html><html><head><title>{tid}</title></head><body><h1>{desc}</h1></body></html>"
             else:
                 # Real LLM Generation
+                repo_map = generate_repo_map(self.workspace_path)
+                repo_context = f"\nExisting Repository Symbol Map:\n{repo_map}\n" if repo_map else ""
+                if repo_map:
+                    self.logs.append({
+                        "node": "coder",
+                        "content": f"Repository Map: Injected cross-file symbols for {fname} ({len(repo_map.splitlines())} lines).",
+                        "timestamp": self.iteration,
+                    })
                 coder_prompt = (
                     f"Task ID: {tid}\n"
                     f"Description: {desc}\n"
                     f"Target file: {fname}\n"
+                    f"{repo_context}"
                     "You are implementing this component. Return the complete, clean code for this file. "
+                    "Ensure consistency with the classes, functions, and style variables listed in the Repository Symbol Map above. "
                     "For HTML files, include semantic HTML5 structure, responsive layout, modern aesthetic, "
                     "and use valid Unsplash floral photography URLs (e.g., https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=800&q=80). "
                     "Output ONLY the raw file contents with NO markdown fences."

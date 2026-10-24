@@ -1,9 +1,11 @@
 import platform
+from pathlib import Path
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage, SystemMessage
 from core.state import AgentState
 from core.tools.fs_tools import read_file, edit_file
 from core.tools.sys_tools import execute_subprocess, finish_task, start_background_server, kill_process_on_port
 from core.llm_factory import get_coder_llm
+from core.repo_map import generate_repo_map
 
 def sanitize_history(messages):
     """
@@ -88,6 +90,12 @@ MODE 3: HUMAN CONVERSATION
     current_task_id = state.get("current_task_id")
     if current_task_id:
         sys_instruct += f"\n<active_task>ACTIVE TASK TO IMPLEMENT: {current_task_id}</active_task>"
+
+    w_path = state.get("workspace_path")
+    if w_path:
+        rmap = generate_repo_map(Path(w_path))
+        if rmap:
+            sys_instruct += f"\n<repository_map>\n{rmap}\n</repository_map>"
 
     llm = get_coder_llm()
     tools = [read_file, edit_file, execute_subprocess, start_background_server, kill_process_on_port, finish_task]
