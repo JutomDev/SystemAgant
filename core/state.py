@@ -1,13 +1,24 @@
-import operator
-from typing import TypedDict, Annotated, List, Dict, Optional
+"""State Definition and Reducer Algebra for LangGraph Engine.
+
+Implements deterministic state evolution for SystemAgant:
+- Unidirectional graph state transitions.
+- Idempotent reducers for WBS tree deep-merging and execution logs.
+- Strict isolation of file system hashes and multi-turn message history.
+"""
+
+from typing import Annotated, Dict, List, Optional, TypedDict
 from langchain_core.messages import BaseMessage
 from langgraph.graph.message import add_messages
-from core.models import FileMetadata, ExecutionLog, Epic
 from pydantic import BaseModel, Field
 
+from core.models import Epic, ExecutionLog, FileMetadata
+
+
 class GuidingPrinciples(BaseModel):
+    """Core engineering invariants enforced across all agent prompts."""
+
     core_constitution: List[str] = Field(default_factory=lambda: [
-        "STRICLY SEPARATION OF CONCERNS: Architect plans, Coder implements intent, Tester executes tools.",
+        "STRICT SEPARATION OF CONCERNS: Architect plans, Coder implements intent, Tester executes tools.",
         "ZERO TOLERANCE FOR SYNTAX ERRORS: Always validate code before proposing.",
         "SECURITY FIRST: Use safe subprocess calls and validated paths.",
         "MODULARITY: Prefer small, single-purpose functions and files.",
@@ -18,7 +29,8 @@ class GuidingPrinciples(BaseModel):
     ])
     project_directives: List[str] = Field(default_factory=list)
 
-# --- STATE REDUCERS ---
+
+# --- STATE REDUCERS (MONOIDAL ALGEBRA) ---
 
 def merge_file_system_state(left: Dict[str, FileMetadata], right: Dict[str, FileMetadata]) -> Dict[str, FileMetadata]:
     """Updates the file system state. New metadata overwrites the old for a given path key."""

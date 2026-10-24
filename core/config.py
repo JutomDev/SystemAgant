@@ -50,33 +50,67 @@ class AppConfig(BaseModel):
     )
 
 
-def load_env_file(env_path: Path) -> None:
-    """Minimal zero-dependency .env loader."""
-    if not env_path.is_file():
+def load_env_file(env_path: Optional[Path] = None) -> None:
+    """Zero-dependency .env file parser and environment populator.
+    
+    Searches both explicitly provided path and the repository root relative
+    to this file location to ensure deterministic discovery across CWD changes.
+    """
+    candidates = []
+    if env_path is not None:
+        candidates.append(env_path)
+    # Project root discovery ensures .env is located even when CWD is a subdirectory
+    project_root = Path(__file__).resolve().parent.parent
+    candidates.extend([Path(".env"), project_root / ".env"])
+
+    target_env: Optional[Path] = None
+    for cand in candidates:
+        if cand.is_file():
+            target_env = cand
+            break
+
+    if target_env is None:
         return
-    with open(env_path, "r", encoding="utf-8") as f:
+
+    with open(target_env, "r", encoding="utf-8") as f:
         for line in f:
             line = line.strip()
+            # Skip comments and malformed empty lines
             if not line or line.startswith("#") or "=" not in line:
                 continue
             k, v = line.split("=", 1)
             k, v = k.strip(), v.strip().strip("\"'")
+            # Existing OS environment variables take precedence over .env file values
             if k not in os.environ:
                 os.environ[k] = v
 
 
 def get_config() -> AppConfig:
-    """Load configuration from environment variables with .env support."""
-    # Attempt to load local .env if present
-    load_env_file(Path(".env"))
+    """Loads configuration with robust .env discovery and adaptive mode resolution.
+    
+    Priority resolution:
+    1. Explicit EXECUTION_MODE environment variable if valid.
+    2. Auto-promote to 'gemini-free' if a GEMINI_API_KEY is detected in environment or .env.
+    3. Safe fallback to 'simulation' for zero-cost, zero-token deterministic mock testing.
+    """
+    load_env_file()
 
-    raw_mode = os.getenv("EXECUTION_MODE", "simulation").lower()
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    raw_mode = os.getenv("EXECUTION_MODE", "").lower().strip()
     valid_modes = {"simulation", "gemini-free", "vertex"}
-    mode = raw_mode if raw_mode in valid_modes else "simulation"
+
+    if raw_mode in valid_modes:
+        mode = raw_mode
+    elif gemini_key and gemini_key.strip():
+        # Auto-activate live Gemini mode when key is present without requiring manual flag
+        mode = "gemini-free"
+    else:
+        # Default to safe mock simulation when no credentials are provided
+        mode = "simulation"
 
     return AppConfig(
         mode=mode,  # type: ignore[arg-type]
-        gemini_api_key=os.getenv("GEMINI_API_KEY"),
+        gemini_api_key=gemini_key,
         gcp_project_id=os.getenv("GCP_PROJECT_ID"),
         gcp_location=os.getenv("GCP_LOCATION", "global"),
         web_host=os.getenv("WEB_HOST", "127.0.0.1"),

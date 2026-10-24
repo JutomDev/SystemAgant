@@ -7,15 +7,18 @@ from core.tools.sys_tools import execute_subprocess, finish_task, start_backgrou
 from core.llm_factory import get_coder_llm
 from core.repo_map import generate_repo_map
 
-def sanitize_history(messages):
+from typing import Any, Dict, List, Union
+
+
+def sanitize_history(messages: List[Union[BaseMessage, Dict[str, Any]]]) -> List[BaseMessage]:
+    """Sanitizes conversation history to prevent LLM API protocol violations.
+
+    Google GenAI and Vertex AI require strict 1-to-1 parity between tool_calls
+    and ToolMessages. This function repairs broken turns by injecting synthetic
+    closures for any orphaned tool calls before invocation.
     """
-    CRITICAL: Vertex AI throws a 400 error if each tool call (ToolCall)
-    does not have exactly one corresponding response (ToolMessage) per turn.
-    This function repairs corrupted history (e.g., loaded from the database state)
-    by injecting missing responses BEFORE sending to the LLM.
-    """
-    sanitized = []
-    pending_tool_calls = {}
+    sanitized: List[BaseMessage] = []
+    pending_tool_calls: Dict[str, Dict[str, Any]] = {}
     
     for msg in messages:
         msg_type = getattr(msg, "type", None) or (msg.get("type") if isinstance(msg, dict) else None)
@@ -122,13 +125,13 @@ MODE 3: HUMAN CONVERSATION
     coder_system_msg = SystemMessage(content=sys_instruct)
     final_messages = [coder_system_msg]
     for m in safe_messages:
-        # Gemini requires every message to have content or a tool call
+        # Model protocol requires either text content or a tool_calls payload
         m_content = getattr(m, "content", "")
         m_tools = getattr(m, "tool_calls", [])
         if m_content or m_tools:
             final_messages.append(m)
-        elif isinstance(m, ToolMessage): # ToolMessage musi być, nawet jeśli wynik to pusty string
-            # SAFETY NET: Gemini requires a 'name' field in every function_response
+        elif isinstance(m, ToolMessage):
+            # ToolMessage must be retained to maintain request-response symmetry in API protocol
             if not getattr(m, "name", None):
                 m = ToolMessage(content=m.content or "[empty]", tool_call_id=m.tool_call_id, name="unknown_tool")
             final_messages.append(m)

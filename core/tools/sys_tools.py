@@ -1,3 +1,4 @@
+from pathlib import Path
 import os
 import subprocess
 import time
@@ -40,27 +41,20 @@ def execute_subprocess(command: str, task_id: str = "UNKNOWN", workspace_path: s
             ).model_dump()
 
     try:
-        # Use workspace_path as the working directory if provided
-        cwd = workspace_path if workspace_path and os.path.exists(workspace_path) else None
-        
-        # FIX: Resolve .venv paths — .venv lives in the project root, NOT in the workspace
-        # When CWD is e.g. workspaces/ai_house_web, .\.venv\ doesn't exist there.
-        if cwd and '.venv' in command:
-            # Walk up from workspace_path to find .venv
-            search_dir = os.path.abspath(cwd)
-            for _ in range(5):  # Max 5 levels up
-                venv_candidate = os.path.join(search_dir, '.venv')
-                if os.path.isdir(venv_candidate):
-                    abs_venv = os.path.abspath(venv_candidate)
-                    # Replace relative .venv references with absolute path
-                    command = command.replace(r'.\.venv', abs_venv)
-                    command = command.replace('./.venv', abs_venv)
-                    command = command.replace('.venv', abs_venv)
+        # Set workspace as working directory if valid
+        cwd_path = Path(workspace_path).resolve() if workspace_path and Path(workspace_path).is_dir() else None
+        cwd = str(cwd_path) if cwd_path else None
+
+        # Resolve .venv paths: virtualenv lives in repository root, not inside isolated workspaces
+        if cwd_path and ".venv" in command:
+            for parent in [cwd_path] + list(cwd_path.parents):
+                venv_candidate = parent / ".venv"
+                if venv_candidate.is_dir():
+                    abs_venv = str(venv_candidate.resolve())
+                    command = command.replace(r".\.venv", abs_venv)
+                    command = command.replace("./.venv", abs_venv)
+                    command = command.replace(".venv", abs_venv)
                     break
-                parent = os.path.dirname(search_dir)
-                if parent == search_dir:
-                    break  # Reached filesystem root
-                search_dir = parent
         
         result = subprocess.run(
             command,

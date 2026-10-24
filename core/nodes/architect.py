@@ -1,4 +1,4 @@
-import os
+from pathlib import Path
 from langchain_core.messages import SystemMessage, AIMessage, HumanMessage
 from core.state import AgentState
 from core.models import ArchitectOutput
@@ -50,10 +50,12 @@ CRITICAL: You MUST output a detailed text response. NEVER output an empty messag
         # ====== WBS PLANNING MODE ======
         workspace_path = state.get("workspace_path", "")
         file_list = []
-        if workspace_path and os.path.exists(workspace_path):
+        ws_p = Path(workspace_path) if workspace_path else None
+        if ws_p and ws_p.is_dir():
             try:
-                file_list = [f for f in os.listdir(workspace_path) if os.path.isfile(os.path.join(workspace_path, f))]
-            except Exception:
+                # Discovers active source files while ignoring internal hidden files
+                file_list = [p.name for p in ws_p.iterdir() if p.is_file() and not p.name.startswith(".")]
+            except OSError:
                 file_list = ["Error reading workspace"]
 
         planner_instruct = rf"""<role>You are an AI Architect responsible for planning the project structure.</role>
