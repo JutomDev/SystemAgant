@@ -101,6 +101,16 @@ During non-trivial full-stack web application development (e.g., building a comp
 * **Issue:** Relying on `SEARCH/REPLACE` text blocks without an AST code-graph made multi-file refactoring fragile. Renaming a component in one file often left dangling imports in three others.
 * **Lesson Learned:** An agent software house requires a semantic repository map (AST tree, call graphs, symbol tables) rather than treating codebases purely as flat filesystem text.
 
+### 4. Scope & Capabilities: What SystemAgant is Built For vs. Out of Scope
+
+| Dimension | In Scope (Deterministic Sweet Spot) | Out of Scope (Architectural Ceilings) |
+|---|---|---|
+| **Web Applications** | Multi-page responsive websites, interactive HTML5/CSS/JS, portfolio sites, Canvas 2D games | Heavy distributed Next.js/React full-stacks with SSR database migrations and Docker swarms |
+| **Backend & CLI** | Modular Python CLI developer tools, data parsers, statistical summary generators, unit tests | Enterprise microservice clusters requiring active PostgreSQL instances and message queues |
+| **Planning & Conceptual Phase** | Multi-turn requirement brainstorming with Architect, deterministic Pydantic v2 WBS | Autoregressive free-form code editing without human milestone approval |
+| **Error Recovery & Self-Healing** | AST syntax self-repair, broken image URL HEAD checks with inline SVG fallback | Recursive multi-file debugging traps where fixing file A breaks files B, C, and D |
+| **Storage & Sandboxing** | Isolated local filesystem sandbox (`workspaces/<project_name>/`) with path boundary guards | Remote production server deployments, cloud infrastructure provisioning |
+
 ---
 
 ## 6. Quickstart Guide

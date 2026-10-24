@@ -9,10 +9,12 @@ Provides REST endpoints for:
 
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import os
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
@@ -39,22 +41,36 @@ app = FastAPI(
 
 class ChatRequest(BaseModel):
     message: str
+    project_name: Optional[str] = None
     api_key: Optional[str] = None
 
 
+class ResetRequest(BaseModel):
+    project_name: Optional[str] = None
+
+
 class DashboardSession:
-    def __init__(self, session_key: Optional[str] = None):
+    def __init__(self, session_key: Optional[str] = None, project_name: str = "web_project"):
         self.config = get_config()
         self.session_key = session_key or self.config.gemini_api_key or os.getenv("GEMINI_API_KEY")
-        self.workspace_path = self.config.workspaces_dir / "kwiaciarnia_mex"
+        self.set_project(project_name)
+        self.reset_state()
+
+    def set_project(self, name: str) -> None:
+        clean = re.sub(r"[^a-zA-Z0-9_\-]", "_", name.strip()).strip("_") or "web_project"
+        self.project_name = clean
+        self.workspace_path = self.config.workspaces_dir / clean
         self.workspace_path.mkdir(parents=True, exist_ok=True)
+
+    def reset_state(self) -> None:
         # Purge existing files on reset to guarantee clean build slate
-        for p in list(self.workspace_path.rglob("*")):
-            if p.is_file() and not p.name.startswith(".git"):
-                try:
-                    p.unlink()
-                except Exception:
-                    pass
+        if self.workspace_path.exists():
+            for p in list(self.workspace_path.rglob("*")):
+                if p.is_file() and not p.name.startswith(".git"):
+                    try:
+                        p.unlink()
+                    except Exception:
+                        pass
 
         self.active_node = "router"
         self.current_phase = "brainstorming"  # brainstorming -> approval -> execution -> completed
@@ -72,13 +88,15 @@ class DashboardSession:
                 "sender": "architect",
                 "title": "Architect",
                 "text": (
-                    "Welcome to SystemAgant. Describe the web application or service you wish to build "
-                    "(e.g., a multi-page botanical shop for Kwiaciarnia-Mex Toruń, a JavaScript game, or a Python script). "
-                    "I will synthesize a deterministic Work Breakdown Structure (WBS) plan for your approval."
+                    f"Welcome to SystemAgant. Active workspace: 'workspaces/{self.project_name}'. "
+                    "Describe the web application, game, or script you wish to build. "
+                    "I will synthesize a deterministic Work Breakdown Structure (WBS). "
+                    "You can refine requirements with me or approve to begin autonomous implementation."
                 ),
                 "type": "agent",
             }
         )
+
 
     def set_api_key(self, key: str) -> None:
         """Sets temporary in-memory session key without persisting to disk."""
@@ -95,11 +113,13 @@ class DashboardSession:
             gemini_model=self.config.gemini_model,
         )
 
-    def process_chat(self, user_text: str, session_key: Optional[str] = None) -> Dict[str, Any]:
+    def process_chat(self, user_text: str, session_key: Optional[str] = None, project_name: Optional[str] = None) -> Dict[str, Any]:
         """Processes user input through the multi-agent state lifecycle."""
         user_clean = user_text.strip()
         if session_key:
             self.set_api_key(session_key)
+        if project_name and self.current_phase == "brainstorming":
+            self.set_project(project_name)
 
         # 1. Record user message
         self.chat_messages.append(
@@ -158,15 +178,15 @@ class DashboardSession:
                                     AtomicTask(
                                         task_id="TASK_1_2",
                                         epic_id="EPIC_1",
-                                        description="Implement product catalog oferta.html with flower showcase cards",
-                                        target_files=["oferta.html"],
+                                        description="Implement product catalog catalog.html with flower showcase cards",
+                                        target_files=["catalog.html"],
                                         status="pending",
                                     ),
                                     AtomicTask(
                                         task_id="TASK_1_3",
                                         epic_id="EPIC_1",
-                                        description="Implement contact page kontakt.html with Toruń address and form",
-                                        target_files=["kontakt.html"],
+                                        description="Implement contact page contact.html with contact form and details",
+                                        target_files=["contact.html"],
                                         status="pending",
                                     ),
                                     AtomicTask(
@@ -192,7 +212,8 @@ class DashboardSession:
                 f"{structured_res.response}\n\n"
                 f"Generated {len(self.wbs)} Epics with "
                 f"{sum(len(e.get('tasks', [])) for e in self.wbs)} Atomic Tasks.\n"
-                "If you accept this strategy, click [APPROVE PLAN] or reply 'APPROVE'."
+                "If you accept this strategy, click [+ APPROVE STRATEGY]. "
+                "Or reply with suggestions/questions to refine the architecture."
             )
 
             self.chat_messages.append(
@@ -222,13 +243,44 @@ class DashboardSession:
                 self.awaiting_hitl = False
                 self.run_execution_cycle()
             else:
+                # Conceptual refinement loop with Architect
+                self.active_node = "architect"
+                self.iteration += 1
+                if cfg.mode == "simulation":
+                    reply_text = f"Architecture requirements updated with feedback: '{user_clean}'. Plan updated."
+                else:
+                    refine_prompt = (
+                        f"Current WBS: {json.dumps(self.wbs)}\n"
+                        f"User feedback/amendment: {user_clean}\n\n"
+                        "Instructions: Refine the Work Breakdown Structure based on the user's feedback. "
+                        "Keep or adjust existing tasks, and add new atomic tasks as necessary. "
+                        "Reply in the user's language explaining how the architecture was updated, but formulate task IDs and target files in English."
+                    )
+                    try:
+                        models = get_architect_llms(cfg)
+                        structured_planner = models["planner"].with_structured_output(ArchitectOutput)
+                        structured_res = structured_planner.invoke(refine_prompt)
+                        self.wbs = [e.model_dump() for e in structured_res.wbs]
+                        reply_text = structured_res.response
+                    except Exception as e:
+                        logger.error("Architect refinement error: %s", e)
+                        reply_text = f"Conceptual feedback noted: '{user_clean}'. Architecture ready for your approval."
+
                 self.chat_messages.append(
                     {
                         "id": f"msg_{len(self.chat_messages)}",
                         "sender": "architect",
                         "title": "Architect",
-                        "text": f"Feedback received: '{user_clean}'. Adjusting plan specifications. Click [APPROVE PLAN] to begin implementation.",
+                        "text": f"{reply_text}\n\nWork Breakdown Structure updated. Click [+ APPROVE STRATEGY] when you are ready to begin implementation.",
+                        "has_wbs": True,
                         "type": "agent",
+                    }
+                )
+                self.logs.append(
+                    {
+                        "node": "architect",
+                        "content": f"Conceptual plan refined from user input: '{user_clean[:60]}'.",
+                        "timestamp": self.iteration,
                     }
                 )
 
@@ -293,6 +345,48 @@ class DashboardSession:
                 content, asset_logs = validate_and_repair_html_images(content, self.workspace_path)
                 for alog in asset_logs:
                     self.logs.append({"node": "tester", "content": alog, "timestamp": self.iteration})
+
+            # AST Syntax Verification & Auto-Repair for Python files
+            if fname.endswith(".py"):
+                try:
+                    ast.parse(content)
+                    self.logs.append({
+                        "node": "tester",
+                        "content": f"AST Syntax Check: '{fname}' parsed successfully (Valid Python syntax).",
+                        "timestamp": self.iteration,
+                    })
+                except SyntaxError as syn_err:
+                    self.logs.append({
+                        "node": "tester",
+                        "content": f"AST Syntax Error in '{fname}': {syn_err}. Triggering self-healing repair...",
+                        "timestamp": self.iteration,
+                    })
+                    if cfg.mode != "simulation":
+                        repair_prompt = (
+                            f"File: {fname}\n"
+                            f"Source Code:\n{content}\n\n"
+                            f"Syntax Error: {syn_err}\n"
+                            "Instructions: Fix the syntax error. Return ONLY the complete corrected Python code with NO markdown fences."
+                        )
+                        try:
+                            rep_msg = coder_llm.invoke(repair_prompt)
+                            rep_code = rep_msg.content or content
+                            if rep_code.startswith("```"):
+                                lines = rep_code.splitlines()
+                                if lines[0].startswith("```"):
+                                    lines = lines[1:]
+                                if lines and lines[-1].strip().startswith("```"):
+                                    lines = lines[:-1]
+                                rep_code = "\n".join(lines).strip()
+                            ast.parse(rep_code)
+                            content = rep_code
+                            self.logs.append({
+                                "node": "tester",
+                                "content": f"Self-Healing: Auto-repair successfully resolved syntax error in '{fname}'.",
+                                "timestamp": self.iteration,
+                            })
+                        except Exception as re_err:
+                            logger.error("Auto-repair error: %s", re_err)
 
             file_path.parent.mkdir(parents=True, exist_ok=True)
             with open(file_path, "w", encoding="utf-8") as f:
@@ -364,10 +458,11 @@ class DashboardSession:
             }
         )
 
-    def reset(self) -> None:
+    def reset(self, project_name: Optional[str] = None) -> None:
         saved_mode = self.config.mode
         saved_key = self.session_key
-        self.__init__(session_key=saved_key)
+        target_project = project_name or self.project_name
+        self.__init__(session_key=saved_key, project_name=target_project)
         self.config.mode = saved_mode
         if saved_mode == "simulation":
             self.session_key = None
@@ -404,6 +499,8 @@ class DashboardSession:
             "wbs": self.wbs,
             "files": files,
             "has_api_key": bool(self.session_key),
+            "project_name": self.project_name,
+            "workspace_dir": f"workspaces/{self.project_name}",
         }
 
 
@@ -428,13 +525,14 @@ def get_state() -> JSONResponse:
 @app.post("/api/chat")
 def post_chat(req: ChatRequest, x_gemini_key: Optional[str] = Header(None)) -> JSONResponse:
     key = req.api_key or x_gemini_key
-    state = _session.process_chat(req.message, session_key=key)
+    state = _session.process_chat(req.message, session_key=key, project_name=req.project_name)
     return JSONResponse(content=state)
 
 
 @app.post("/api/reset")
-def post_reset() -> JSONResponse:
-    _session.reset()
+def post_reset(req: Optional[ResetRequest] = None) -> JSONResponse:
+    pname = req.project_name if req else None
+    _session.reset(project_name=pname)
     return JSONResponse(content=_session.get_full_state())
 
 

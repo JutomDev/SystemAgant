@@ -19,6 +19,8 @@ const dom = {
   chipGame: document.getElementById("chip-game"),
   chipCli: document.getElementById("chip-cli"),
   btnApiKey: document.getElementById("btn-api-key"),
+  inputProjectName: document.getElementById("input-project-name"),
+  workspaceBadge: document.getElementById("workspace-badge"),
 
   // LEDs
   ledArchitect: document.getElementById("led-architect"),
@@ -153,6 +155,13 @@ function renderHeaderAndGraph(data) {
   if (data.has_api_key || sessionApiKey) {
     dom.btnApiKey.textContent = "[ KEY: ACTIVE ]";
     dom.btnApiKey.style.color = "var(--accent-green)";
+  }
+
+  if (data.workspace_dir && dom.workspaceBadge) {
+    dom.workspaceBadge.textContent = data.workspace_dir;
+  }
+  if (data.project_name && dom.inputProjectName && document.activeElement !== dom.inputProjectName) {
+    dom.inputProjectName.value = data.project_name;
   }
 }
 
@@ -302,10 +311,11 @@ dom.chatForm.addEventListener("submit", async (e) => {
   dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
 
   try {
+    const proj = dom.inputProjectName ? dom.inputProjectName.value.trim() : undefined;
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ message: msg, api_key: sessionApiKey || undefined })
+      body: JSON.stringify({ message: msg, project_name: proj, api_key: sessionApiKey || undefined })
     });
     if (!res.ok) throw new Error("Server error");
     const data = await res.json();
@@ -319,10 +329,11 @@ dom.chatForm.addEventListener("submit", async (e) => {
 // HITL Approve Button
 dom.btnHitlApprove.addEventListener("click", async () => {
   try {
+    const proj = dom.inputProjectName ? dom.inputProjectName.value.trim() : undefined;
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ message: "APPROVE", api_key: sessionApiKey || undefined })
+      body: JSON.stringify({ message: "APPROVE", project_name: proj, api_key: sessionApiKey || undefined })
     });
     if (!res.ok) throw new Error("Server error");
     const data = await res.json();
@@ -340,9 +351,10 @@ dom.btnHitlAsk.addEventListener("click", () => {
   dom.chatInput.focus();
 });
 
-// Quick prompt presets
+// Example prompt presets
 if (dom.chipKwiaciarnia) {
   dom.chipKwiaciarnia.addEventListener("click", () => {
+    if (dom.inputProjectName) dom.inputProjectName.value = "kwiaciarnia_mex";
     dom.chatInput.value = "Create a botanical floral shop website for Kwiaciarnia-Mex in Toruń with 3 subpages (Home, Catalog with flower photos, Contact) and clean responsive styles.";
     dom.chatInput.focus();
   });
@@ -350,6 +362,7 @@ if (dom.chipKwiaciarnia) {
 
 if (dom.chipGame) {
   dom.chipGame.addEventListener("click", () => {
+    if (dom.inputProjectName) dom.inputProjectName.value = "breakout_arcade";
     dom.chatInput.value = "Build a retro 2D arcade game in HTML5 Canvas and JavaScript with scoring, player controls, and start/game-over screens.";
     dom.chatInput.focus();
   });
@@ -357,6 +370,7 @@ if (dom.chipGame) {
 
 if (dom.chipCli) {
   dom.chipCli.addEventListener("click", () => {
+    if (dom.inputProjectName) dom.inputProjectName.value = "python_cli_tool";
     dom.chatInput.value = "Build a Python CLI developer tool with argparse, robust logging, modular architecture, and unit tests.";
     dom.chatInput.focus();
   });
@@ -381,7 +395,12 @@ if (dom.btnApiKey) {
 dom.btnResetSession.addEventListener("click", async () => {
   if (!confirm("Are you sure you want to reset the agent session and clear workspace state?")) return;
   try {
-    const res = await fetch("/api/reset", { method: "POST", headers: getHeaders() });
+    const proj = dom.inputProjectName ? dom.inputProjectName.value.trim() : undefined;
+    const res = await fetch("/api/reset", {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify({ project_name: proj })
+    });
     if (!res.ok) return;
     const data = await res.json();
     renderAll(data);
