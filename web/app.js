@@ -1,5 +1,5 @@
 /**
- * SystemAgant Tactile UI Controller (v2.2)
+ * SystemAgant Tactile UI Controller (v0.2.1)
  * Interactive Multi-Agent Conversation, Live Workspace Explorer & Telemetry
  */
 

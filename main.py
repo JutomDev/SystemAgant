@@ -91,7 +91,7 @@ def main():
         start_server(host=cfg.web_host, port=args.port or cfg.web_port)
         return
 
-    print("=== AI Software House CLI (v2.0 - Production Ready) ===")
+    print("=== AI Software House CLI (v0.2.1 - Laboratory Prototype) ===")
     print(f"[*] Execution Mode: {cfg.mode.upper()}")
 
     project_name = args.project

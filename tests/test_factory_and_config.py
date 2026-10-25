@@ -1,8 +1,13 @@
 """Unit tests for configuration and simulation LLM factory."""
 
+from core import __version__
 from core.config import AppConfig, get_config
 from core.llm_factory import get_architect_llms, get_coder_llm
 from core.models import ArchitectOutput
+
+
+def test_package_version():
+    assert __version__ == "0.2.1"
 
 
 def test_app_config_defaults():

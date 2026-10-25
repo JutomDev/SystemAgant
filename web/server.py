@@ -217,7 +217,7 @@ def extract_state_from_db(workspace_path: Path, project_name: str) -> dict[str, 
 app = FastAPI(
     title="SystemAgant Tactile Dashboard",
     description="Interactive Multi-Agent Chat, Telemetry Rack & Live Preview",
-    version="2.1.0",
+    version="0.2.1",
 )
 
 
