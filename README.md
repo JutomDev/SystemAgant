@@ -1,21 +1,24 @@
-# SystemAgant — Autonomous Software House Architecture & Post-Mortem
+# SystemAgant
 
-```
-[SYSTEM_AGANT] // MULTI-AGENT STATE MACHINE FOR AUTONOMOUS SOFTWARE ENGINEERING
-Status: Archived / Research Showcase & Post-Mortem
-Runtime: Python 3.11+ | LangGraph | Pydantic v2 | SQLite Checkpoints
-Telemetry: Tactile Web Dashboard & Rich CLI
-```
+> **Deterministic Multi-Agent Software Engineering Engine & Tactile Architecture Laboratory**
+
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests: 30 Passed](https://img.shields.io/badge/Tests-30%20Passed-emerald.svg)](tests/)
+[![Architecture: LangGraph](https://img.shields.io/badge/Orchestrator-LangGraph-orange.svg)](https://github.com/langchain-ai/langgraph)
+[![Status: v2.2.1 Stable](https://img.shields.io/badge/Release-v2.2.1%20Stable-brightgreen.svg)]()
 
 ---
 
-## 1. Executive Summary
+## 1. Overview
 
-**SystemAgant** is an experimental multi-agent software engineering system built on **LangGraph**. The system coordinates specialized autonomous nodes—**Architect**, **Coder**, **Tester**, and **Router**—with milestone-based Human-In-The-Loop (HITL) escalation to plan, implement, and self-verify software projects in isolated sandboxes.
+**SystemAgant** is a deterministic multi-agent software engineering system orchestrated by **LangGraph**. The platform coordinates specialized autonomous nodes—**Architect**, **Coder**, **Tester**, and **Router**—with milestone-based Human-In-The-Loop (HITL) escalation to plan, implement, and self-verify software projects inside isolated filesystem sandboxes.
 
-While the core mechanics achieved reliable structured planning and sandboxed code execution, the project exposed fundamental computational, economic, and architectural ceilings in long-loop autonomous software development. 
-
-This repository serves as a **transparent engineering case study and post-mortem**, complete with an **offline deterministic simulation engine (0 tokens / no API keys required)** and an **industrial tactile web visualizer**.
+The repository includes:
+- **Offline Deterministic Simulation Engine:** Instant replay of multi-agent runs consuming 0 tokens and requiring no external credentials.
+- **Autonomous Free Gemini Engine:** Live multi-agent execution powered by Google AI Studio Gemini API free-tier with in-memory session keys.
+- **Tactile Web Visualizer:** Low-latency telemetry dashboard (250ms polling) with active LED indicators, real-time node state transitions, and a sandboxed live preview.
+- **Empirical Post-Mortem & Architecture Analysis:** Candid engineering documentation on token economy, SQLite checkpoint inflation, and AST repository mapping.
 
 ---
 
