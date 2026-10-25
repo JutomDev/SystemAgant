@@ -81,6 +81,63 @@ function getHeaders() {
   return h;
 }
 
+let telemetryInterval = null;
+
+function updatePreviewFrame(page) {
+  if (!dom.previewFrame) return;
+  const targetPage = page || (dom.previewPageSelect ? dom.previewPageSelect.value : "index.html") || "index.html";
+  dom.previewFrame.src = `/api/workspace/preview/${encodeURIComponent(targetPage)}?t=${Date.now()}`;
+}
+
+function isApprovalText(text) {
+  if (!text) return false;
+  const upper = text.toUpperCase();
+  const keywords = [
+    "APPROVE",
+    "ZATWIERDZ",
+    "ZATWIEDZ",
+    "YES",
+    "TAK",
+    "OK",
+    "PROCEED",
+    "WYKONAJ",
+    "START",
+    "ROZPOCZNIJ",
+    "WDROŻ",
+    "WDROZ",
+    "AKCEPTUJ",
+    "ZGODA",
+  ];
+  return keywords.some(kw => upper.includes(kw));
+}
+
+function startTelemetryPolling() {
+  if (telemetryInterval) return;
+  const pollOnce = async () => {
+    try {
+      const res = await fetch("/api/state", { headers: getHeaders() });
+      if (!res.ok) return;
+      const data = await res.json();
+      renderAll(data);
+      if (!data.is_busy && data.current_phase !== "EXECUTION") {
+        stopTelemetryPolling();
+        updatePreviewFrame();
+      }
+    } catch (err) {
+      console.error("Telemetry polling error:", err);
+    }
+  };
+  pollOnce();
+  telemetryInterval = setInterval(pollOnce, 250);
+}
+
+function stopTelemetryPolling() {
+  if (telemetryInterval) {
+    clearInterval(telemetryInterval);
+    telemetryInterval = null;
+  }
+}
+
 // Fetch state from server
 async function fetchState() {
   try {
@@ -88,6 +145,9 @@ async function fetchState() {
     if (!res.ok) return;
     const data = await res.json();
     renderAll(data);
+    if (data.is_busy) {
+      startTelemetryPolling();
+    }
   } catch (err) {
     console.error("Failed to fetch state:", err);
   }
@@ -106,10 +166,15 @@ function renderHeaderAndGraph(data) {
   const modeText = data.mode === "GEMINI-FREE" ? "GEMINI FLASH LIVE" : (data.mode || "LIVE");
   if (dom.modeLabel) dom.modeLabel.textContent = modeText;
   if (dom.graphCycleMeta) dom.graphCycleMeta.textContent = `CYCLE: ${data.iteration || 0} | PHASE: ${data.current_phase || "IDLE"}`;
-  if (dom.chatStatusMeta) dom.chatStatusMeta.textContent = `STATUS: ${data.current_phase || "IDLE"}`;
+  
+  const active = (data.active_node || "").toLowerCase();
+  if (data.is_busy) {
+    if (dom.chatStatusMeta) dom.chatStatusMeta.textContent = `STATUS: ACTIVE [${active.toUpperCase()}]`;
+  } else {
+    if (dom.chatStatusMeta) dom.chatStatusMeta.textContent = `STATUS: ${data.current_phase || "IDLE"}`;
+  }
 
   // Update LEDs
-  const active = (data.active_node || "").toLowerCase();
   [dom.ledArchitect, dom.ledCoder, dom.ledTester, dom.ledRouter].forEach(el => {
     if (el) el.classList.remove("active");
   });
@@ -121,26 +186,29 @@ function renderHeaderAndGraph(data) {
 
   // Update wire nodes
   [dom.nodeRouter, dom.nodeArchitect, dom.nodeCoder, dom.nodeTester, dom.nodeHuman].forEach(el => {
-    if (el) el.classList.remove("active");
+    if (el) {
+      el.classList.remove("active");
+      el.classList.remove("current");
+    }
   });
   [dom.statusRouter, dom.statusArchitect, dom.statusCoder, dom.statusTester, dom.statusHuman].forEach(el => {
     if (el) el.textContent = "STANDBY";
   });
 
   if (active === "router" && dom.nodeRouter) {
-    dom.nodeRouter.classList.add("active");
-    if (dom.statusRouter) dom.statusRouter.textContent = "EVALUATING";
+    dom.nodeRouter.classList.add("active", "current");
+    if (dom.statusRouter) dom.statusRouter.textContent = data.is_busy ? "ROUTING" : "STANDBY";
   } else if (active === "architect" && dom.nodeArchitect) {
-    dom.nodeArchitect.classList.add("active");
+    dom.nodeArchitect.classList.add("active", "current");
     if (dom.statusArchitect) dom.statusArchitect.textContent = "SYNTHESIZING";
   } else if (active === "coder" && dom.nodeCoder) {
-    dom.nodeCoder.classList.add("active");
+    dom.nodeCoder.classList.add("active", "current");
     if (dom.statusCoder) dom.statusCoder.textContent = "GENERATING";
   } else if (active === "tester" && dom.nodeTester) {
-    dom.nodeTester.classList.add("active");
+    dom.nodeTester.classList.add("active", "current");
     if (dom.statusTester) dom.statusTester.textContent = "VERIFYING";
   } else if (active === "human_approval" && dom.nodeHuman) {
-    dom.nodeHuman.classList.add("active");
+    dom.nodeHuman.classList.add("active", "current");
     if (dom.statusHuman) dom.statusHuman.textContent = "AWAITING";
   }
 
@@ -215,6 +283,29 @@ function renderChat(data) {
     el.innerHTML = html;
     dom.chatMessages.appendChild(el);
   });
+
+  // Render live in-progress agent bubble while state machine is active
+  if (data.is_busy) {
+    const active = (data.active_node || "ROUTER").toUpperCase();
+    const currentTask = data.current_task_id ? ` // ${escapeHtml(data.current_task_id)}` : "";
+    let statusText = "System processing state transition...";
+    if (data.logs && data.logs.length > 0) {
+      statusText = data.logs[data.logs.length - 1].content || statusText;
+    }
+
+    const liveEl = document.createElement("div");
+    liveEl.className = "chat-bubble system live-activity-bubble";
+    liveEl.innerHTML = `
+      <div class="bubble-header" style="color: var(--accent-amber); display: flex; justify-content: space-between; align-items: center;">
+        <span>[${active}${currentTask}]</span>
+        <span class="live-status-pill"><span class="pulse-indicator">●</span>LIVE ACTIVE</span>
+      </div>
+      <div class="bubble-body" style="color: #fff; font-size: 11px; margin-top: 4px;">
+        ${escapeHtml(statusText)}
+      </div>
+    `;
+    dom.chatMessages.appendChild(liveEl);
+  }
 
   dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
 }
@@ -344,27 +435,86 @@ dom.chatForm.addEventListener("submit", async (e) => {
   if (!msg) return;
 
   dom.chatInput.value = "";
-  
+
   // Render user bubble immediately
   const userEl = document.createElement("div");
   userEl.className = "chat-bubble user";
   userEl.innerHTML = `<div class="bubble-header">[USER]</div><div class="bubble-body">${escapeHtml(msg)}</div>`;
   dom.chatMessages.appendChild(userEl);
+
+  const isApproval = isApprovalText(msg);
+  if (isApproval) {
+    if (dom.chatStatusMeta) dom.chatStatusMeta.textContent = "STATUS: ACTIVE [CODER // INITIALIZING]";
+    if (dom.nodeCoder) dom.nodeCoder.classList.add("active", "current");
+    if (dom.ledCoder) dom.ledCoder.classList.add("active");
+    startTelemetryPolling();
+    switchTab("preview");
+  } else {
+    if (dom.chatStatusMeta) dom.chatStatusMeta.textContent = "STATUS: ACTIVE [ARCHITECT // ANALYZING]";
+    if (dom.nodeArchitect) dom.nodeArchitect.classList.add("active", "current");
+    if (dom.ledArchitect) dom.ledArchitect.classList.add("active");
+    startTelemetryPolling();
+  }
+
+  // Render optimistic agent telemetry pulse indicator
+  const tempEl = document.createElement("div");
+  tempEl.id = "tempAgentIndicator";
+  tempEl.className = "chat-bubble system live-activity-bubble";
+  const agentTitle = isApproval ? "CODER // INITIALIZING" : "ARCHITECT // ANALYZING";
+  const agentDesc = isApproval
+    ? "Execution cycle engaged. Routing atomic tasks through state machine..."
+    : "Analyzing requirements and synthesizing architecture...";
+  tempEl.innerHTML = `
+    <div class="bubble-header" style="color: var(--accent-amber); display: flex; justify-content: space-between; align-items: center;">
+      <span>[${agentTitle}]</span>
+      <span class="live-status-pill"><span class="pulse-indicator">●</span>LIVE ACTIVE</span>
+    </div>
+    <div class="bubble-body" style="color: #fff; font-size: 11px; margin-top: 4px;">
+      ${agentDesc}
+    </div>
+  `;
+  dom.chatMessages.appendChild(tempEl);
   dom.chatMessages.scrollTop = dom.chatMessages.scrollHeight;
+
+  const btnSubmit = dom.chatForm.querySelector("button[type='submit']");
+  if (btnSubmit) {
+    btnSubmit.disabled = true;
+    btnSubmit.textContent = "[ RUNNING... ]";
+  }
 
   try {
     const proj = dom.inputProjectName ? dom.inputProjectName.value.trim() : undefined;
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ message: msg, project_name: proj, api_key: sessionApiKey || undefined })
+      body: JSON.stringify({
+        message: msg,
+        project_name: proj,
+        api_key: sessionApiKey || undefined,
+        async_execution: true,
+      }),
     });
     if (!res.ok) throw new Error("Server error");
     const data = await res.json();
+    const temp = document.getElementById("tempAgentIndicator");
+    if (temp) temp.remove();
     renderAll(data);
-    dom.previewFrame.src = "/api/workspace/preview?t=" + Date.now();
+    if (data.is_busy) {
+      startTelemetryPolling();
+    } else {
+      stopTelemetryPolling();
+      updatePreviewFrame();
+    }
   } catch (err) {
     console.error("Chat error:", err);
+    const temp = document.getElementById("tempAgentIndicator");
+    if (temp) temp.remove();
+    stopTelemetryPolling();
+  } finally {
+    if (btnSubmit) {
+      btnSubmit.disabled = false;
+      btnSubmit.textContent = "[ TRANSMIT ]";
+    }
   }
 });
 
@@ -372,19 +522,25 @@ dom.chatForm.addEventListener("submit", async (e) => {
 dom.btnHitlApprove.addEventListener("click", async () => {
   try {
     const proj = dom.inputProjectName ? dom.inputProjectName.value.trim() : undefined;
+    if (dom.chatStatusMeta) dom.chatStatusMeta.textContent = "STATUS: ACTIVE [CODER // INITIALIZING]";
+    if (dom.nodeCoder) dom.nodeCoder.classList.add("active", "current");
+    if (dom.ledCoder) dom.ledCoder.classList.add("active");
+    startTelemetryPolling();
+    switchTab("preview");
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: getHeaders(),
-      body: JSON.stringify({ message: "APPROVE", project_name: proj, api_key: sessionApiKey || undefined })
+      body: JSON.stringify({ message: "APPROVE", project_name: proj, api_key: sessionApiKey || undefined, async_execution: true }),
     });
     if (!res.ok) throw new Error("Server error");
     const data = await res.json();
     renderAll(data);
-    dom.previewFrame.src = "/api/workspace/preview?t=" + Date.now();
-    // Auto switch to preview tab
-    switchTab("preview");
+    if (data.is_busy) {
+      startTelemetryPolling();
+    }
   } catch (err) {
     console.error("Approval error:", err);
+    stopTelemetryPolling();
   }
 });
 
@@ -446,7 +602,7 @@ dom.btnResetSession.addEventListener("click", async () => {
     if (!res.ok) return;
     const data = await res.json();
     renderAll(data);
-    dom.previewFrame.src = "/api/workspace/preview?t=" + Date.now();
+    updatePreviewFrame();
   } catch (err) {
     console.error("Reset error:", err);
   }
@@ -455,14 +611,12 @@ dom.btnResetSession.addEventListener("click", async () => {
 // Preview page selection & refresh
 if (dom.previewPageSelect) {
   dom.previewPageSelect.addEventListener("change", () => {
-    const page = dom.previewPageSelect.value;
-    dom.previewFrame.src = `/api/workspace/preview?file=${encodeURIComponent(page)}&t=${Date.now()}`;
+    updatePreviewFrame(dom.previewPageSelect.value);
   });
 }
 
 dom.btnRefreshPreview.addEventListener("click", () => {
-  const page = dom.previewPageSelect ? dom.previewPageSelect.value : "index.html";
-  dom.previewFrame.src = `/api/workspace/preview?file=${encodeURIComponent(page)}&t=${Date.now()}`;
+  updatePreviewFrame();
 });
 
 // Tab navigation
@@ -473,8 +627,7 @@ function switchTab(tabKey) {
   if (tabKey === "preview") {
     dom.tabLivePreview.classList.add("active");
     dom.panePreview.classList.add("active");
-    const page = dom.previewPageSelect ? dom.previewPageSelect.value : "index.html";
-    dom.previewFrame.src = `/api/workspace/preview?file=${encodeURIComponent(page)}&t=${Date.now()}`;
+    updatePreviewFrame();
   } else if (tabKey === "files") {
     dom.tabFiles.classList.add("active");
     dom.paneFiles.classList.add("active");
@@ -546,11 +699,7 @@ if (dom.selectWorkspace) {
       // Determine primary file for preview
       const htmlFile = (state.files || []).find(f => f.name.endsWith(".html"));
       const previewFile = htmlFile ? htmlFile.name : "";
-      if (previewFile) {
-        dom.previewFrame.src = `/api/workspace/preview?file=${encodeURIComponent(previewFile)}&t=${Date.now()}`;
-      } else {
-        dom.previewFrame.src = `/api/workspace/preview?t=${Date.now()}`;
-      }
+      updatePreviewFrame(previewFile);
     } catch (err) {
       console.error("Failed to load workspace:", err);
     }
@@ -571,13 +720,37 @@ if (dom.btnNewWorkspace) {
       const state = await res.json();
       renderAll(state);
       await loadWorkspacesList();
-      dom.previewFrame.src = `/api/workspace/preview?t=${Date.now()}`;
+      updatePreviewFrame();
     } catch (err) {
       console.error("Failed to create new workspace:", err);
     }
   });
 }
 
-// Initial state fetch
+// Iframe load listener to synchronize page selector when user clicks links inside preview
+if (dom.previewFrame) {
+  dom.previewFrame.addEventListener("load", () => {
+    try {
+      const loc = dom.previewFrame.contentWindow.location;
+      const pathname = loc.pathname || "";
+      const filename = pathname.split("/").filter(Boolean).pop();
+      if (filename && filename.endsWith(".html") && dom.previewPageSelect) {
+        if (dom.previewPageSelect.value !== filename) {
+          dom.previewPageSelect.value = filename;
+        }
+      }
+    } catch (e) {
+      // Cross-origin fallback
+    }
+  });
+}
+
+// Initial state fetch & background standby refresh (5 seconds)
 loadWorkspacesList();
 fetchState();
+
+setInterval(() => {
+  if (!telemetryInterval) {
+    fetchState();
+  }
+}, 5000);

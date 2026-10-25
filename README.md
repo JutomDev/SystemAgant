@@ -201,24 +201,41 @@ pytest -v
 
 Verification output:
 ```
-tests/test_factory_and_config.py::test_app_config_defaults PASSED        [  7%]
-tests/test_factory_and_config.py::test_simulation_architect_wbs_generation PASSED [ 15%]
+tests/test_botanical_shop_integrity.py::test_botanical_shop_files_exist PASSED [  3%]
+tests/test_botanical_shop_integrity.py::test_botanical_shop_hamburger_menu_integrity PASSED [  6%]
+tests/test_botanical_shop_integrity.py::test_botanical_shop_all_links_and_anchors_valid PASSED [ 10%]
+tests/test_botanical_shop_integrity.py::test_botanical_shop_preview_http_endpoints PASSED [ 13%]
+tests/test_factory_and_config.py::test_app_config_defaults PASSED        [ 16%]
+tests/test_factory_and_config.py::test_simulation_architect_wbs_generation PASSED [ 20%]
 tests/test_factory_and_config.py::test_simulation_coder_tool_calls PASSED [ 23%]
-tests/test_state.py::test_update_execution_logs_append PASSED            [ 30%]
-tests/test_state.py::test_update_execution_logs_reset PASSED             [ 38%]
-tests/test_state.py::test_merge_file_system_state PASSED                 [ 46%]
+tests/test_repo_map.py::test_parse_python_symbols PASSED                 [ 26%]
+tests/test_repo_map.py::test_parse_js_symbols PASSED                     [ 30%]
+tests/test_repo_map.py::test_parse_html_symbols PASSED                   [ 33%]
+tests/test_repo_map.py::test_generate_repo_map PASSED                    [ 36%]
+tests/test_repo_map.py::test_generate_task_scoped_repo_map PASSED        [ 40%]
+tests/test_state.py::test_update_execution_logs_append PASSED            [ 43%]
+tests/test_state.py::test_update_execution_logs_reset PASSED             [ 46%]
+tests/test_state.py::test_merge_file_system_state PASSED                 [ 50%]
 tests/test_tools.py::test_read_file_not_found PASSED                     [ 53%]
-tests/test_tools.py::test_edit_file_format PASSED                        [ 61%]
-tests/test_tools.py::test_edit_file_success PASSED                       [ 69%]
-tests/test_web_server.py::test_serve_index PASSED                        [ 76%]
-tests/test_web_server.py::test_api_state PASSED                          [ 84%]
-tests/test_web_server.py::test_api_chat_flow PASSED                      [ 92%]
-tests/test_web_server.py::test_api_reset PASSED                          [100%]
-============================= 13 passed in 0.63s ==============================
+tests/test_tools.py::test_edit_file_format PASSED                        [ 56%]
+tests/test_tools.py::test_edit_file_success PASSED                       [ 60%]
+tests/test_web_server.py::test_serve_index PASSED                        [ 63%]
+tests/test_web_server.py::test_api_state PASSED                          [ 66%]
+tests/test_web_server.py::test_api_chat_flow PASSED                      [ 70%]
+tests/test_web_server.py::test_api_reset PASSED                          [ 73%]
+tests/test_web_server.py::test_preview_nested_and_static_assets PASSED   [ 76%]
+tests/test_web_server.py::test_api_chat_async_execution PASSED           [ 80%]
+tests/test_web_server.py::test_non_destructive_editing_and_node_transitions PASSED [ 83%]
+tests/test_web_server.py::test_natural_language_approval_and_async_planning PASSED [ 86%]
+tests/test_workspace_persistence.py::test_workspace_listing_and_new PASSED [ 90%]
+tests/test_workspace_persistence.py::test_workspace_persistence_and_resume PASSED [ 93%]
+tests/test_workspace_persistence.py::test_load_existing_files_workspace_and_preview PASSED [ 96%]
+tests/test_workspace_persistence.py::test_load_statedb_checkpoint_workspace PASSED [100%]
+============================= 30 passed in 14.20s =============================
 ```
 
 ---
 
 ## 8. License
 
-Apache 2.0 / MIT Open Source Research. Provided as an open case study for the multi-agent AI engineering community.
+MIT License. See [LICENSE](LICENSE) for full legal text. Open-source research and engineering showcase for the autonomous agent and multi-agent systems community.

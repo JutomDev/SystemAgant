@@ -14,11 +14,13 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException, Query
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -223,6 +225,7 @@ class ChatRequest(BaseModel):
     message: str
     project_name: str | None = None
     api_key: str | None = None
+    async_execution: bool = False
 
 
 class ResetRequest(BaseModel):
@@ -238,6 +241,7 @@ class DashboardSession:
     def __init__(self, session_key: str | None = None, project_name: str = "web_project"):
         self.config = get_config()
         self.session_key = session_key or self.config.gemini_api_key or os.getenv("GEMINI_API_KEY")
+        self.is_busy = False
         self.set_project(project_name, load_existing=True)
 
     def set_project(self, name: str, load_existing: bool = True) -> None:
@@ -269,6 +273,7 @@ class DashboardSession:
         self.wbs: list[dict[str, Any]] = []
         self.current_task_id: str | None = None
         self.awaiting_hitl = False
+        self.is_busy = False
 
         self.chat_messages.append(
             {
@@ -333,16 +338,22 @@ class DashboardSession:
                     self.save_state_to_disk()
                     return True
 
-                self.project_name = data.get("project_name", self.project_name)
-                self.active_node = data.get("active_node", "router")
-                self.current_phase = data.get("current_phase", "completed")
-                self.iteration = data.get("iteration", 1)
-                self.awaiting_hitl = data.get("awaiting_hitl", False)
-                self.current_task_id = data.get("current_task_id")
-                self.chat_messages = saved_msgs
-                self.wbs = data.get("wbs", [])
-                self.logs = data.get("logs", [])
-                return True
+                saved_wbs = data.get("wbs", [])
+                existing_files = scan_workspace_files(self.workspace_path)
+                # If session.json is only an uninitialized 1-message stub without WBS, but real project files exist, hydrate files!
+                if len(saved_msgs) <= 1 and not saved_wbs and existing_files:
+                    pass  # Fall through to step 3 file hydration
+                else:
+                    self.project_name = data.get("project_name", self.project_name)
+                    self.active_node = data.get("active_node", "router")
+                    self.current_phase = data.get("current_phase", "completed")
+                    self.iteration = data.get("iteration", 1)
+                    self.awaiting_hitl = data.get("awaiting_hitl", False)
+                    self.current_task_id = data.get("current_task_id")
+                    self.chat_messages = saved_msgs
+                    self.wbs = saved_wbs
+                    self.logs = data.get("logs", [])
+                    return True
             except Exception as e:
                 logger.error("Failed to load workspace session: %s", e)
 
@@ -456,7 +467,11 @@ class DashboardSession:
         )
 
     def process_chat(
-        self, user_text: str, session_key: str | None = None, project_name: str | None = None
+        self,
+        user_text: str,
+        session_key: str | None = None,
+        project_name: str | None = None,
+        async_execution: bool = False,
     ) -> dict[str, Any]:
         """Processes user input through the multi-agent state lifecycle."""
         user_clean = user_text.strip()
@@ -476,13 +491,84 @@ class DashboardSession:
             }
         )
 
-        cfg = self._get_active_config()
+        approval_keywords = [
+            "APPROVE",
+            "ZATWIERDZ",
+            "ZATWIEDZ",
+            "YES",
+            "TAK",
+            "OK",
+            "PROCEED",
+            "WYKONAJ",
+            "START",
+            "ROZPOCZNIJ",
+            "WDROŻ",
+            "WDROZ",
+            "AKCEPTUJ",
+            "ZGODA",
+        ]
+        is_approval = any(kw in user_clean.upper() for kw in approval_keywords)
+        has_pending = any(t.get("status") != "completed" for epic in self.wbs for t in epic.get("tasks", []))
 
-        # Phase 1: User requests plan / project description
-        if self.current_phase == "brainstorming":
+        # Trigger execution cycle if approved
+        if (
+            self.current_phase in ["approval", "execution"] or (self.current_phase == "completed" and has_pending)
+        ) and is_approval:
+            self.current_phase = "execution"
+            self.awaiting_hitl = False
+            self.active_node = "coder"
+            if async_execution:
+                self.is_busy = True
+                self.save_state_to_disk()
+                worker = threading.Thread(target=self._run_execution_cycle_safe, daemon=True)
+                worker.start()
+                return self.get_full_state()
+            else:
+                self.run_execution_cycle()
+                self.save_state_to_disk()
+                return self.get_full_state()
+
+        # Otherwise trigger planning / refinement / incremental synthesis
+        if async_execution:
             self.active_node = "architect"
-            self.iteration += 1
+            self.is_busy = True
+            self.logs.append(
+                {
+                    "node": "architect",
+                    "content": f"Architect analyzing requirements: '{user_clean[:60]}'.",
+                    "timestamp": self.iteration,
+                }
+            )
+            self.save_state_to_disk()
+            worker = threading.Thread(
+                target=self._run_planning_cycle_safe,
+                args=(user_clean,),
+                daemon=True,
+            )
+            worker.start()
+            return self.get_full_state()
+        else:
+            self.run_planning_cycle(user_clean)
+            self.save_state_to_disk()
+            return self.get_full_state()
 
+    def _run_planning_cycle_safe(self, user_clean: str) -> None:
+        try:
+            self.run_planning_cycle(user_clean)
+        except Exception as e:
+            logger.error("Error in background planning cycle: %s", e)
+            self.logs.append({"node": "architect", "content": f"Planning error: {e}", "timestamp": self.iteration})
+        finally:
+            self.is_busy = False
+            self.save_state_to_disk()
+
+    def run_planning_cycle(self, user_clean: str) -> None:
+        cfg = self._get_active_config()
+        self.active_node = "architect"
+        self.iteration += 1
+
+        # Phase 1: User requests initial plan / project description
+        if self.current_phase == "brainstorming":
             if cfg.mode == "simulation":
                 # Deterministic test mock
                 from tests.fakes import FakeArchitectStructured
@@ -547,7 +633,6 @@ class DashboardSession:
 
             # Convert Pydantic epics to dict
             self.wbs = [epic.model_dump() for epic in (structured_res.wbs or [])]
-
             self.current_phase = "approval"
             self.awaiting_hitl = True
             self.active_node = "human_approval"
@@ -579,58 +664,50 @@ class DashboardSession:
                 }
             )
 
-        # Phase 2: User approves plan or provides feedback
+        # Phase 2: Refinement loop with Architect
         elif self.current_phase in ["approval", "execution"]:
-            approval_keywords = ["APPROVE", "ZATWIERDZAM", "ZATWIERDZ", "YES", "TAK", "OK", "PROCEED"]
-            if any(kw in user_clean.upper() for kw in approval_keywords):
-                self.current_phase = "execution"
-                self.awaiting_hitl = False
-                self.run_execution_cycle()
+            if cfg.mode == "simulation":
+                reply_text = f"Architecture requirements updated with feedback: '{user_clean}'. Plan updated."
             else:
-                # Conceptual refinement loop with Architect
-                self.active_node = "architect"
-                self.iteration += 1
-                if cfg.mode == "simulation":
-                    reply_text = f"Architecture requirements updated with feedback: '{user_clean}'. Plan updated."
-                else:
-                    refine_prompt = (
-                        f"Current WBS: {json.dumps(self.wbs)}\n"
-                        f"User feedback/amendment: {user_clean}\n\n"
-                        "Instructions: Refine the Work Breakdown Structure based on the user's feedback. "
-                        "Keep or adjust existing tasks, and add new atomic tasks as necessary. "
-                        "Reply in the user's language explaining how the architecture was updated, but formulate task IDs and target files in English."
-                    )
-                    try:
-                        models = get_architect_llms(cfg)
-                        structured_planner = models["planner"].with_structured_output(ArchitectOutput)
-                        structured_res = structured_planner.invoke(refine_prompt)
-                        self.wbs = [e.model_dump() for e in structured_res.wbs]
-                        reply_text = structured_res.response
-                    except Exception as e:
-                        logger.error("Architect refinement error: %s", e)
-                        reply_text = f"Conceptual feedback noted: '{user_clean}'. Architecture ready for your approval."
+                refine_prompt = (
+                    f"Current WBS: {json.dumps(self.wbs)}\n"
+                    f"User feedback/amendment: {user_clean}\n\n"
+                    "Instructions: Refine the Work Breakdown Structure based on the user's feedback. "
+                    "Keep or adjust existing tasks, and add new atomic tasks as necessary. "
+                    "Reply in the user's language explaining how the architecture was updated, but formulate task IDs and target files in English."
+                )
+                try:
+                    models = get_architect_llms(cfg)
+                    structured_planner = models["planner"].with_structured_output(ArchitectOutput)
+                    structured_res = structured_planner.invoke(refine_prompt)
+                    self.wbs = [e.model_dump() for e in structured_res.wbs]
+                    reply_text = structured_res.response
+                except Exception as e:
+                    logger.error("Architect refinement error: %s", e)
+                    reply_text = f"Conceptual feedback noted: '{user_clean}'. Architecture ready for your approval."
 
-                self.chat_messages.append(
-                    {
-                        "id": f"msg_{len(self.chat_messages)}",
-                        "sender": "architect",
-                        "title": "Architect",
-                        "text": f"{reply_text}\n\nWork Breakdown Structure updated. Click [+ APPROVE STRATEGY] when you are ready to begin implementation.",
-                        "has_wbs": True,
-                        "type": "agent",
-                    }
-                )
-                self.logs.append(
-                    {
-                        "node": "architect",
-                        "content": f"Conceptual plan refined from user input: '{user_clean[:60]}'.",
-                        "timestamp": self.iteration,
-                    }
-                )
+            self.active_node = "human_approval"
+            self.awaiting_hitl = True
+            self.chat_messages.append(
+                {
+                    "id": f"msg_{len(self.chat_messages)}",
+                    "sender": "architect",
+                    "title": "Architect",
+                    "text": f"{reply_text}\n\nWork Breakdown Structure updated. Click [+ APPROVE STRATEGY] when you are ready to begin implementation.",
+                    "has_wbs": True,
+                    "type": "agent",
+                }
+            )
+            self.logs.append(
+                {
+                    "node": "architect",
+                    "content": f"Conceptual plan refined from user input: '{user_clean[:60]}'.",
+                    "timestamp": self.iteration,
+                }
+            )
+
         # Phase 3: Post-Completion Continuous Development & Iterative Features
         elif self.current_phase == "completed":
-            self.active_node = "architect"
-            self.iteration += 1
             repo_map = generate_task_scoped_repo_map(
                 self.workspace_path,
                 task_description=user_clean,
@@ -680,6 +757,7 @@ class DashboardSession:
 
             self.current_phase = "approval"
             self.awaiting_hitl = True
+            self.active_node = "human_approval"
             self.chat_messages.append(
                 {
                     "id": f"msg_{len(self.chat_messages)}",
@@ -698,8 +776,15 @@ class DashboardSession:
                 }
             )
 
-        self.save_state_to_disk()
-        return self.get_full_state()
+    def _run_execution_cycle_safe(self) -> None:
+        try:
+            self.run_execution_cycle()
+        except Exception as e:
+            logger.error("Error in background execution cycle: %s", e)
+            self.logs.append({"node": "system", "content": f"Execution error: {e}", "timestamp": self.iteration})
+        finally:
+            self.is_busy = False
+            self.save_state_to_disk()
 
     def run_execution_cycle(self) -> None:
         """Executes WBS tasks using real LLM generation or deterministic fallback."""
@@ -718,16 +803,52 @@ class DashboardSession:
             target_files = task.get("target_files", ["index.html"])
             fname = target_files[0] if target_files else "index.html"
 
-            # 1. Coder Phase
+            # 1. Router Phase: Task Dispatch
+            self.active_node = "router"
+            self.iteration += 1
+            self.current_task_id = tid
+            self.logs.append(
+                {
+                    "node": "router",
+                    "content": f"Dispatching atomic task {tid} ('{desc[:40]}...') to Coder.",
+                    "timestamp": self.iteration,
+                }
+            )
+            self.save_state_to_disk()
+            time.sleep(0.35)
+
+            # 2. Coder Phase: Agent Synthesis & Editing
             self.active_node = "coder"
             self.iteration += 1
             task["status"] = "in_progress"
             self.current_task_id = tid
+            self.logs.append(
+                {
+                    "node": "coder",
+                    "content": f"Analyzing target file '{fname}' for task {tid}...",
+                    "timestamp": self.iteration,
+                }
+            )
+            self.save_state_to_disk()
+
+            file_path = self.workspace_path / fname
+            file_exists = file_path.is_file() and file_path.stat().st_size > 0
+            existing_content = ""
+            if file_exists:
+                try:
+                    existing_content = file_path.read_text(encoding="utf-8")
+                except Exception as e:
+                    logger.warning("Could not read existing file %s: %s", file_path, e)
 
             content = ""
             if cfg.mode == "simulation":
-                # Fast mock generation
-                content = f"<!DOCTYPE html><html><head><title>{tid}</title></head><body><h1>{desc}</h1></body></html>"
+                # In simulation mode: Never wipe existing production files with a dummy stub!
+                if file_exists:
+                    content = existing_content
+                else:
+                    content = (
+                        f"<!DOCTYPE html><html><head><title>{tid}</title></head><body><h1>{desc}</h1></body></html>"
+                    )
             else:
                 # Real LLM Generation with Task-Scoped Repo Map
                 repo_map = generate_task_scoped_repo_map(
@@ -745,17 +866,37 @@ class DashboardSession:
                             "timestamp": self.iteration,
                         }
                     )
-                coder_prompt = (
-                    f"Task ID: {tid}\n"
-                    f"Description: {desc}\n"
-                    f"Target file: {fname}\n"
-                    f"{repo_context}"
-                    "You are implementing this component. Return the complete, clean code for this file. "
-                    "Ensure consistency with the classes, functions, and style variables listed in the Repository Symbol Map above. "
-                    "For HTML files, include semantic HTML5 structure, responsive layout, modern aesthetic, "
-                    "and use valid Unsplash floral photography URLs (e.g., https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=800&q=80). "
-                    "Output ONLY the raw file contents with NO markdown fences."
-                )
+
+                if file_exists:
+                    coder_prompt = (
+                        f"Task ID: {tid}\n"
+                        f"Task Description: {desc}\n"
+                        f"Target File: {fname} (EXISTING FILE MODIFICATION)\n\n"
+                        f"{repo_context}\n"
+                        f"--- CURRENT PRODUCTION CONTENT OF {fname} ({len(existing_content)} bytes) ---\n"
+                        f"{existing_content}\n"
+                        f"--- END OF CURRENT CONTENT ---\n\n"
+                        "CRITICAL AGENT INSTRUCTIONS FOR EDITING EXISTING FILES:\n"
+                        "1. You are modifying an EXISTING, functional file in a real project.\n"
+                        "2. DO NOT delete, shorten, or break any existing sections, headers, footers, navigation, styles, or scripts.\n"
+                        "3. PRESERVE all existing branding ('Botanica Studio' etc.), fonts, and design tokens.\n"
+                        "4. Carefully integrate the requested modifications or additions into the existing code.\n"
+                        "5. Return the COMPLETE, UPDATED file content with your changes seamlessly integrated.\n"
+                        "6. Output ONLY the raw file content with NO markdown fences, no explanations, no chat text."
+                    )
+                else:
+                    coder_prompt = (
+                        f"Task ID: {tid}\n"
+                        f"Description: {desc}\n"
+                        f"Target file: {fname} (NEW COMPONENT CREATION)\n"
+                        f"{repo_context}"
+                        "You are implementing this component from scratch. Return the complete, clean code for this file. "
+                        "Ensure consistency with the classes, functions, and style variables listed in the Repository Symbol Map above. "
+                        "For HTML files, include semantic HTML5 structure, responsive layout, modern aesthetic, "
+                        "and use valid Unsplash floral photography URLs (e.g., https://images.unsplash.com/photo-1563245372-f21724e3856d?auto=format&fit=crop&w=800&q=80). "
+                        "Output ONLY the raw file contents with NO markdown fences."
+                    )
+
                 try:
                     ai_msg = coder_llm.invoke(coder_prompt)
                     raw_text = ai_msg.content or ""
@@ -770,10 +911,47 @@ class DashboardSession:
                     content = raw_text
                 except Exception as e:
                     logger.error("Coder invocation error: %s", e)
-                    content = f"<!-- Auto-generated fallback for {fname} -->\n<!DOCTYPE html><html><body><h1>{desc}</h1></body></html>"
+                    content = (
+                        existing_content
+                        if file_exists
+                        else f"<!-- Auto-generated fallback for {fname} -->\n<!DOCTYPE html><html><body><h1>{desc}</h1></body></html>"
+                    )
+
+            # 3. Tester Phase: Validation & Catastrophic Regression Guard
+            self.active_node = "tester"
+            self.iteration += 1
+            self.logs.append(
+                {
+                    "node": "tester",
+                    "content": f"Sandboxed Verification: Inspecting '{fname}' for syntax, assets, and regressions...",
+                    "timestamp": self.iteration,
+                }
+            )
+            self.save_state_to_disk()
+            time.sleep(0.4)
+
+            # Catastrophic Regression Guard: Prevent dropping substantial code sections
+            if file_exists and len(existing_content) > 300:
+                if len(content) < len(existing_content) * 0.40:
+                    self.logs.append(
+                        {
+                            "node": "tester",
+                            "content": f"Regression Guard: Generated content for '{fname}' shrank drastically ({len(content)} vs {len(existing_content)} bytes). Rejecting destructive overwrite.",
+                            "timestamp": self.iteration,
+                        }
+                    )
+                    content = existing_content
+                elif fname.endswith(".html") and "<body" in existing_content and "<body" not in content:
+                    self.logs.append(
+                        {
+                            "node": "tester",
+                            "content": f"Integrity Guard: Generated HTML for '{fname}' missing <body> tag. Reverting to safe version to avoid breaking page.",
+                            "timestamp": self.iteration,
+                        }
+                    )
+                    content = existing_content
 
             # Validate and auto-repair any broken image URLs in HTML
-            file_path = self.workspace_path / fname
             if fname.endswith(".html"):
                 content, asset_logs = validate_and_repair_html_images(content, self.workspace_path)
                 for alog in asset_logs:
@@ -834,7 +1012,7 @@ class DashboardSession:
             self.logs.append(
                 {
                     "node": "coder",
-                    "content": f"edit_file(path='{fname}', overwrite=True) -> Wrote {len(content)} bytes to workspace.",
+                    "content": f"edit_file(path='{fname}') -> Wrote {len(content)} bytes to workspace.",
                     "timestamp": self.iteration,
                 }
             )
@@ -847,10 +1025,6 @@ class DashboardSession:
                     "type": "coder",
                 }
             )
-
-            # 2. Tester Phase
-            self.active_node = "tester"
-            self.iteration += 1
             self.logs.append(
                 {
                     "node": "tester",
@@ -867,8 +1041,10 @@ class DashboardSession:
                     "type": "tester",
                 }
             )
+            self.save_state_to_disk()
+            time.sleep(0.4)
 
-            # 3. Router Phase
+            # 4. Router Phase: Task Completion
             self.active_node = "router"
             self.iteration += 1
             task["status"] = "completed"
@@ -879,6 +1055,8 @@ class DashboardSession:
                     "timestamp": self.iteration,
                 }
             )
+            self.save_state_to_disk()
+            time.sleep(0.3)
 
         self.current_phase = "completed"
         self.active_node = "router"
@@ -936,6 +1114,7 @@ class DashboardSession:
             "current_phase": self.current_phase.upper(),
             "iteration": self.iteration,
             "awaiting_hitl": self.awaiting_hitl,
+            "is_busy": getattr(self, "is_busy", False),
             "current_task_id": self.current_task_id,
             "progress_percent": progress,
             "chat_messages": self.chat_messages,
@@ -969,7 +1148,12 @@ def get_state() -> JSONResponse:
 @app.post("/api/chat")
 def post_chat(req: ChatRequest, x_gemini_key: str | None = Header(None)) -> JSONResponse:
     key = req.api_key or x_gemini_key
-    state = _session.process_chat(req.message, session_key=key, project_name=req.project_name)
+    state = _session.process_chat(
+        req.message,
+        session_key=key,
+        project_name=req.project_name,
+        async_execution=req.async_execution,
+    )
     return JSONResponse(content=state)
 
 
@@ -1046,41 +1230,83 @@ def get_file_content(path: str = Query(...)) -> PlainTextResponse:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@app.get("/api/workspace/preview")
-def preview_workspace(file: str | None = None) -> HTMLResponse:
-    files = scan_workspace_files(_session.workspace_path)
-    html_files = [f["name"] for f in files if f["name"].endswith(".html")]
+def _serve_workspace_path(rel_path: str) -> Response:
+    clean_path = rel_path.lstrip("/").lstrip("\\")
+    base = _session.workspace_path.resolve()
+    target = (_session.workspace_path / clean_path).resolve()
 
-    target_name = file
+    if not str(target).startswith(str(base)) or not target.exists():
+        raise HTTPException(status_code=404, detail=f"File '{rel_path}' not found in workspace")
+
+    if target.is_dir():
+        idx = target / "index.html"
+        if idx.is_file():
+            target = idx
+        else:
+            raise HTTPException(status_code=404, detail=f"Directory index not found for '{rel_path}'")
+
+    suffix = target.suffix.lower()
+    if suffix == ".html":
+        try:
+            with open(target, encoding="utf-8") as f:
+                html_code = f.read()
+
+            # Inject <base href="/api/workspace/preview/"> to guarantee RFC 3986 relative links resolve safely
+            if "<base" not in html_code:
+                base_tag = '<base href="/api/workspace/preview/">'
+                if "</head>" in html_code:
+                    html_code = html_code.replace("</head>", f"{base_tag}</head>", 1)
+                else:
+                    html_code = f"{base_tag}\n{html_code}"
+
+            style_file = _session.workspace_path / "style.css"
+            if style_file.is_file():
+                with open(style_file, encoding="utf-8") as sf:
+                    css_code = sf.read()
+                if "</head>" in html_code:
+                    html_code = html_code.replace("</head>", f"<style>{css_code}</style></head>", 1)
+                else:
+                    html_code = f"<style>{css_code}</style>\n" + html_code
+
+            return HTMLResponse(content=html_code)
+        except Exception as e:
+            logger.warning("Error reading preview file %s: %s", target, e)
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+    if suffix == ".css":
+        return Response(content=target.read_bytes(), media_type="text/css")
+    if suffix == ".js":
+        return Response(content=target.read_bytes(), media_type="application/javascript")
+    if suffix == ".json":
+        return Response(content=target.read_bytes(), media_type="application/json")
+    if suffix in [".png", ".jpg", ".jpeg", ".svg", ".webp", ".gif", ".ico", ".woff", ".woff2", ".ttf"]:
+        return FileResponse(target)
+
+    return FileResponse(target)
+
+
+@app.get("/api/workspace/preview")
+@app.get("/api/workspace/preview/{file_path:path}")
+def preview_workspace(file_path: str = "", file: str | None = None) -> Response:
+    target_name = file_path or file
     if not target_name:
+        files = scan_workspace_files(_session.workspace_path)
+        html_files = [f["name"] for f in files if f["name"].endswith(".html")]
         if "index.html" in html_files:
             target_name = "index.html"
         elif html_files:
             target_name = html_files[0]
 
-    if target_name and target_name.endswith(".html"):
+    if target_name:
         try:
-            clean_path = target_name.lstrip("/").lstrip("\\")
-            target = (_session.workspace_path / clean_path).resolve()
-            base = _session.workspace_path.resolve()
-            if str(target).startswith(str(base)) and target.is_file():
-                with open(target, encoding="utf-8") as f:
-                    html_code = f.read()
-
-                style_file = _session.workspace_path / "style.css"
-                if style_file.is_file():
-                    with open(style_file, encoding="utf-8") as sf:
-                        css_code = sf.read()
-                    if "</head>" in html_code:
-                        html_code = html_code.replace("</head>", f"<style>{css_code}</style></head>")
-                    else:
-                        html_code = f"<style>{css_code}</style>" + html_code
-
-                return HTMLResponse(content=html_code)
+            return _serve_workspace_path(target_name)
+        except HTTPException:
+            pass
         except Exception as e:
             logger.warning("Error reading preview file %s: %s", target_name, e)
 
     # If non-HTML codebase files exist (e.g. Python CLI, JS, etc.)
+    files = scan_workspace_files(_session.workspace_path)
     if files:
         file_items_html = "".join(
             f'<li style="margin: 6px 0; color: #58a6ff;">[FILE] {f["name"]} <span style="color:#8c9ba5;">({f["size"]} B)</span></li>'
@@ -1110,6 +1336,13 @@ def preview_workspace(file: str | None = None) -> HTMLResponse:
             <p>Send a prompt in the chat and approve the plan to generate and preview your project.</p>
         </div></body></html>"""
     )
+
+
+@app.get("/api/workspace/{file_path:path}")
+def serve_workspace_file_direct(file_path: str) -> Response:
+    if file_path in ["files", "file", "preview", "load", "new"]:
+        raise HTTPException(status_code=404, detail="Reserved endpoint")
+    return _serve_workspace_path(file_path)
 
 
 app.mount("/static", StaticFiles(directory=str(WEB_DIR)), name="static")
