@@ -3,19 +3,21 @@
 > **Deterministic Multi-Agent State Machine for Autonomous Software Engineering**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
+[![Framework: LangGraph](https://img.shields.io/badge/Orchestrator-LangGraph-orange.svg)](https://github.com/langchain-ai/langgraph)
+[![Validation: Pydantic v2](https://img.shields.io/badge/Validation-Pydantic%20v2-e92063.svg)](https://docs.pydantic.dev/)
+[![Server: FastAPI](https://img.shields.io/badge/Server-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Tests: 30 Passed](https://img.shields.io/badge/Tests-30%20Passed-emerald.svg)](tests/)
-[![Architecture: LangGraph](https://img.shields.io/badge/Orchestrator-LangGraph-orange.svg)](https://github.com/langchain-ai/langgraph)
-[![Status: On Hold](https://img.shields.io/badge/Status-On%20Hold%20%28Maintenance%29-amber.svg)]()
-[![Release: v2.2.1 Stable](https://img.shields.io/badge/Release-v2.2.1%20Stable-brightgreen.svg)]()
+[![Status: On Hold](https://img.shields.io/badge/Status-On%20Hold%20%28v0.2.1%29-amber.svg)]()
 
-| Specification | Details |
+| Specification | Technical Details |
 |---|---|
-| **Project Status** | **On Hold** (Feature-complete v2.2.1 baseline; maintained in stable state) |
-| **Orchestration** | Cyclic State Machine via LangGraph & SQLite Checkpoints |
-| **Runtime Target** | Python 3.11+ (Pydantic v2, FastAPI, AsyncIO) |
-| **Telemetry & UI** | Tactile Web Visualizer (250ms streaming) & Rich Terminal CLI |
-| **Test Verification** | 30/30 Unit & Integration Tests Passing (PyTest) |
+| **Version & Status** | `v0.2.1` Prototype Baseline (On Hold / Maintenance Mode) |
+| **Agent Orchestrator** | **LangGraph** (Cyclic Directed Graph with SQLite State Checkpoints) |
+| **Schema Validation** | **Pydantic v2** (Deterministic Structured Output for WBS & Execution Planning) |
+| **Runtime & Backend** | **Python 3.11+**, **FastAPI**, **Uvicorn**, **AsyncIO** |
+| **Code Intelligence** | Zero-Dependency AST Repository Mapper (`core/repo_map.py`) |
+| **Telemetry & UI** | Tactile Industrial Visualizer (Vanilla CSS3, 250ms streaming) & Rich CLI |
+| **Verification Suite** | PyTest (Unit & Integration Coverage for Reducers, AST, & HTTP Endpoints) |
 
 ---
 
