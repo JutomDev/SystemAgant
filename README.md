@@ -1,12 +1,21 @@
 # SystemAgant
 
-> **Deterministic Multi-Agent Software Engineering Engine & Tactile Architecture Laboratory**
+> **Deterministic Multi-Agent State Machine for Autonomous Software Engineering**
 
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tests: 30 Passed](https://img.shields.io/badge/Tests-30%20Passed-emerald.svg)](tests/)
 [![Architecture: LangGraph](https://img.shields.io/badge/Orchestrator-LangGraph-orange.svg)](https://github.com/langchain-ai/langgraph)
-[![Status: v2.2.1 Stable](https://img.shields.io/badge/Release-v2.2.1%20Stable-brightgreen.svg)]()
+[![Status: On Hold](https://img.shields.io/badge/Status-On%20Hold%20%28Maintenance%29-amber.svg)]()
+[![Release: v2.2.1 Stable](https://img.shields.io/badge/Release-v2.2.1%20Stable-brightgreen.svg)]()
+
+| Specification | Details |
+|---|---|
+| **Project Status** | **On Hold** (Feature-complete v2.2.1 baseline; maintained in stable state) |
+| **Orchestration** | Cyclic State Machine via LangGraph & SQLite Checkpoints |
+| **Runtime Target** | Python 3.11+ (Pydantic v2, FastAPI, AsyncIO) |
+| **Telemetry & UI** | Tactile Web Visualizer (250ms streaming) & Rich Terminal CLI |
+| **Test Verification** | 30/30 Unit & Integration Tests Passing (PyTest) |
 
 ---
 
@@ -18,7 +27,7 @@ The repository includes:
 - **Offline Deterministic Simulation Engine:** Instant replay of multi-agent runs consuming 0 tokens and requiring no external credentials.
 - **Autonomous Free Gemini Engine:** Live multi-agent execution powered by Google AI Studio Gemini API free-tier with in-memory session keys.
 - **Tactile Web Visualizer:** Low-latency telemetry dashboard (250ms polling) with active LED indicators, real-time node state transitions, and a sandboxed live preview.
-- **Empirical Post-Mortem & Architecture Analysis:** Candid engineering documentation on token economy, SQLite checkpoint inflation, and AST repository mapping.
+- **Empirical Retrospective & Architecture Analysis:** Candid engineering documentation on token economy, SQLite checkpoint inflation, and AST repository mapping.
 
 ---
 
@@ -82,7 +91,7 @@ graph TD
 
 ---
 
-## 5. Architectural Ceilings & Failure Modes (The Post-Mortem)
+## 5. Architectural Ceilings & Engineering Retrospective
 
 During non-trivial full-stack web application development (e.g., building a complete React + FastAPI application), the autonomous loop hit practical limits:
 
